@@ -1,0 +1,193 @@
+{
+    "basic_info": {
+        "case_name": "이혼 소송",
+        "court_name": null,
+        "date_created": null
+    },
+    "parties": {
+        "plaintiff": {
+            "name": "원",
+            "registration_number": null,
+            "domicile": null,
+            "address": null,
+            "postal_code": null
+        },
+        "plaintiff_representative": {
+            "type": "lawyer",
+            "name": "변",
+            "office_name": null,
+            "address": null,
+            "contact": {
+                "phone": null,
+                "fax": null
+            }
+        },
+        "defendant": [
+            {
+                "order": 1,
+                "name": null,
+                "registration_number": null,
+                "domicile": null,
+                "address": null,
+                "postal_code": null
+            }
+        ],
+        "case_subject": [
+            {
+                "order": null,
+                "name": "한병동",
+                "registration_number": null,
+                "domicile": null,
+                "address": null
+            }
+        ]
+    },
+    "claim_purpose": {
+        "divorce_claim": {
+            "claim": true
+        },
+        "alimony": {
+            "claim": true,
+            "amount": 50000000,
+            "interest": {
+                "rate": null,
+                "start_point": "day_after_service",
+                "end_point": "payment_date"
+            },
+            "joint_responsibility": false
+        },
+        "property_division": {
+            "claim": true,
+            "amount": 7000000,
+            "interest": {
+                "rate": null,
+                "start_point": "day_after_verdict",
+                "end_point": "payment_date"
+            }
+        },
+        "custody_designation": {
+            "claim": true,
+            "designated_person": "원"
+        },
+        "guardian_designation": {
+            "claim": false,
+            "designated_person": null
+        },
+        "child_support": {
+            "claim": true,
+            "payer": null,
+            "child_details": [
+                {
+                    "child_order": 1,
+                    "monthly_amount": 600000,
+                    "payment_period": {
+                        "start_date": "day_after_service",
+                        "end_date": null
+                    }
+                },
+                {
+                    "child_order": 2,
+                    "monthly_amount": 600000,
+                    "payment_period": {
+                        "start_date": "day_after_service",
+                        "end_date": null
+                    }
+                }
+            ],
+            "payment_day": "end_of_month"
+        },
+        "litigation_cost": {
+            "payer": null
+        },
+        "provisional_execution": {
+            "request": false,
+            "target_items": []
+        }
+    },
+    "claim_reason": {
+        "relationship_between_parties": {
+            "marriage": {
+                "registration_date": null,
+                "marriage_duration": null,
+                "number_of_children": 2
+            }
+        },
+        "divorce_reason": {
+            "legal_basis": {
+                "law": "Civil Code",
+                "article": "Article 840",
+                "clause": null
+            },
+            "reason_details": [
+                {
+                    "type": "외도",
+                    "detailed_reason": "피고의 반복된 외도",
+                    "time_period": {
+                        "start": null,
+                        "end": null
+                    }
+                }
+            ]
+        },
+        "alimony_claim_reason": {
+            "reason_for_claim": [
+                "피고의 반복된 외도로 인한 피해"
+            ],
+            "amount_basis": []
+        },
+        "property_division_claim_reason": {
+            "reason_for_claim": [
+                "피고의 재산 기여 부족"
+            ],
+            "contribution_to_property": [
+                "원의 경제적 지원"
+            ],
+            "amount_basis": []
+        },
+        "custody_and_guardianship_reason": {
+            "reason_for_claim": [
+                "피고의 양육 무관심"
+            ],
+            "eligibility_basis": [
+                "아이들의 원과 함께 지내고 싶어함"
+            ]
+        }
+    },
+    "evidence_methods": {
+        "required_documents": {
+            "marriage_certificate": {
+                "submitted": false,
+                "document_number": null
+            },
+            "family_relation_certificate": {
+                "submitted": false,
+                "document_number": null
+            },
+            "resident_registration": {
+                "submitted": false,
+                "document_number": null
+            }
+        },
+        "other_evidence": [
+            {
+                "evidence_number": 1,
+                "evidence_name": "인스타그램 게시물 및 문자 메시지 캡처",
+                "purpose": "외도 증명",
+                "submitted": true
+            }
+        ]
+    },
+    "attachments": {
+        "power_of_attorney": {
+            "submitted": false
+        },
+        "proof_of_service_fee_payment": {
+            "submitted": false,
+            "payment_amount": null
+        },
+        "proof_of_stamp_attachment": {
+            "submitted": false,
+            "stamp_amount": null
+        }
+    }
+}
