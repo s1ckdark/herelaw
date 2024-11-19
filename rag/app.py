@@ -2,30 +2,29 @@ import streamlit as st
 import openai
 import os
 from dotenv import load_dotenv
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
+from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
-from langsmith import Client
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.callbacks.tracers import LangChainTracer
-from langchain.callbacks.manager import CallbackManager
-from typing import List, Dict
-import json
-from datetime import datetime
+from langchain.chains import RetrievalQA
+from langchain.llms import OpenAI
 from pymongo import MongoClient
+from datetime import datetime
 import uuid
 import hashlib
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 from docx import Document
-from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-import tempfile
-import sys
 import time
+from langsmith import Client
+from typing import List, Dict, Optional
+import json
+import sys
 sys.path.append("../stt")
 from gcp import record_audio as gcp_record
 from gcp import audio_to_text as gcp_transcribe
 from whisper_stt import AudioTranscriber
+import extra_streamlit_components as stx
+from datetime import timedelta
 
 class Session:
     def __init__(self, session_id, timestamp, consultation_text="", generated_content="", rating=None, feedback=""):
@@ -36,61 +35,249 @@ class Session:
         self.rating = rating
         self.feedback = feedback
 
+class UserManager:
+    def __init__(self, mongo_db):
+        self.mongo_db = mongo_db
+        if 'user' not in st.session_state:
+            st.session_state.user = None
+        
+        # 쿠키 매니저 초기화
+        self.cookie_manager = stx.CookieManager()
+        st.write("쿠키 매니저 초기화됨")  # Debug log
+        
+        # 쿠키에서 세션 복원
+        self._restore_session_from_cookie()
+
+    def _restore_session_from_cookie(self):
+        """쿠키에서 사용자 세션을 복원합니다."""
+        if not st.session_state.user:  # 세션에 사용자가 없을 때만 쿠키 확인
+            username = self.cookie_manager.get("username")
+            st.write(f"쿠키에서 읽은 username: {username}")  # Debug log
+            if username:
+                user = self.mongo_db.db.users.find_one({"username": username})
+                if user:
+                    st.session_state.user = {
+                        "username": user["username"],
+                        "user_id": str(user["_id"])
+                    }
+                    st.write("쿠키에서 세션 복원 성공")  # Debug log
+
+    def login(self, username, password):
+        # 실제 구현에서는 비밀번호 해싱 필요
+        user = self.mongo_db.db.users.find_one({
+            "username": username,
+            "password": password
+        })
+        if user:
+            st.session_state.user = {
+                "username": user["username"],
+                "user_id": str(user["_id"])
+            }
+            # 24시간 유효한 쿠키 설정
+            try:
+                self.cookie_manager.set(
+                    "username",
+                    user["username"],
+                    expires_at=datetime.now() + timedelta(days=1)
+                )
+                st.write("쿠키 설정 성공")  # Debug log
+                
+                # 쿠키가 제대로 설정되었는지 즉시 확인
+                saved_username = self.cookie_manager.get("username")
+                st.write(f"저장된 쿠키 확인: {saved_username}")  # Debug log
+            except Exception as e:
+                st.write(f"쿠키 설정 실패: {str(e)}")  # Debug log
+            return True
+        return False
+
+    def logout(self):
+        st.session_state.user = None
+        st.session_state.sessions = []
+        st.session_state.current_session_id = None
+        # 쿠키 삭제
+        try:
+            self.cookie_manager.delete("username")
+            st.write("쿠키 삭제 성공")  # Debug log
+        except Exception as e:
+            st.write(f"쿠키 삭제 실패: {str(e)}")  # Debug log
+
+    def is_logged_in(self):
+        if not st.session_state.user:
+            self._restore_session_from_cookie()
+        return st.session_state.user is not None
+
+    def get_current_user(self):
+        if not st.session_state.user:
+            self._restore_session_from_cookie()
+        return st.session_state.user
+
+    def register(self, username, password):
+        # 이미 존재하는 사용자인지 확인
+        existing_user = self.mongo_db.db.users.find_one({"username": username})
+        if existing_user:
+            return False, "이미 존재하는 사용자입니다."
+        
+        # 새 사용자 등록
+        user = {
+            "username": username,
+            "password": password,  # 실제 구현시 해시 처리 필요
+            "created_at": datetime.now()
+        }
+        try:
+            self.mongo_db.db.users.insert_one(user)
+            return True, "사용자 등록이 완료되었습니다."
+        except Exception as e:
+            return False, f"사용자 등록 중 오류가 발생했습니다: {str(e)}"
+
 class SessionManager:
     def __init__(self):
         if 'sessions' not in st.session_state:
             st.session_state.sessions = []
         if 'current_session_id' not in st.session_state:
             st.session_state.current_session_id = None
+        self.db = get_database()
+        self.sessions_collection = self.db['sessions']
 
     def save_session(self, consultation_text, generated_content):
-        session = {
-            'session_id': str(uuid.uuid4()),
-            'timestamp': datetime.now(),
-            'consultation_text': consultation_text,
-            'generated_content': generated_content,
-            'rating': st.session_state.get('rating', None),  # 기본값으로 None 설정
-            'feedback': st.session_state.get('feedback', '')
+        user = st.session_state.get('user')
+        if not user:
+            raise ValueError("User not logged in")
+
+        session = Session(
+            session_id=str(uuid.uuid4()),
+            timestamp=datetime.now(),
+            consultation_text=consultation_text,
+            generated_content=generated_content
+        )
+        session.user_id = user['user_id']
+        session.username = user['username']
+        
+        # MongoDB에 저장
+        session_data = {
+            'session_id': session.session_id,
+            'user_id': session.user_id,
+            'username': session.username,
+            'timestamp': session.timestamp,
+            'consultation_text': session.consultation_text,
+            'generated_content': session.generated_content,
+            'rating': None,
+            'feedback': ''
         }
+        self.sessions_collection.insert_one(session_data)
+        
         st.session_state.sessions.append(session)
-        st.session_state.current_session_id = session['session_id']
-        return session
+        st.session_state.current_session_id = session.session_id
+        return session.session_id
 
     def get_sessions(self):
+        """현재 로그인한 사용자의 세션을 MongoDB에서 가져옵니다."""
+        user = st.session_state.get('user')
+        if not user:
+            return []
+        
+        # MongoDB에서 세션 로드
+        session_docs = self.sessions_collection.find(
+            {'user_id': user['user_id']},
+            sort=[('timestamp', -1)]  # 최신 순으로 정렬
+        )
+        
         sessions = []
-        for session_data in st.session_state.sessions:
+        for doc in session_docs:
             session = Session(
-                session_id=session_data['session_id'],
-                timestamp=session_data['timestamp'],
-                consultation_text=session_data['consultation_text'],
-                generated_content=session_data['generated_content'],
-                rating=session_data.get('rating', None),  # 기본값으로 None 설정
-                feedback=session_data.get('feedback', '')
+                session_id=doc['session_id'],
+                timestamp=doc['timestamp'],
+                consultation_text=doc['consultation_text'],
+                generated_content=doc['generated_content']
             )
+            session.user_id = doc['user_id']
+            session.username = doc['username']
+            session.rating = doc.get('rating')
+            session.feedback = doc.get('feedback', '')
             sessions.append(session)
+        
+        # 세션 상태 업데이트
+        st.session_state.sessions = sessions
         return sessions
-
-    def get_current_session(self):
-        if not hasattr(st.session_state, 'current_session_id') or not st.session_state.current_session_id:
-            return None
-        sessions = self.get_sessions()
-        for session in sessions:
-            if session.session_id == st.session_state.current_session_id:
-                return session
-        return None
 
     def update_current_session(self, rating=None, feedback=None):
         if not st.session_state.current_session_id:
             return False
         
-        for session in st.session_state.sessions:
-            if session['session_id'] == st.session_state.current_session_id:
-                if rating is not None:
-                    session['rating'] = rating
-                if feedback is not None:
-                    session['feedback'] = feedback
-                return True
+        update_data = {}
+        if rating is not None:
+            update_data['rating'] = rating
+        if feedback is not None:
+            update_data['feedback'] = feedback
+        
+        if update_data:
+            # MongoDB 업데이트
+            self.sessions_collection.update_one(
+                {'session_id': st.session_state.current_session_id},
+                {'$set': update_data}
+            )
+            
+            # 메모리 상의 세션도 업데이트
+            for session in st.session_state.sessions:
+                if session.session_id == st.session_state.current_session_id:
+                    if rating is not None:
+                        session.rating = rating
+                    if feedback is not None:
+                        session.feedback = feedback
+                    return True
         return False
+
+def display_sessions():
+    """세션 목록을 표시합니다."""
+    if not st.session_state.user:
+        return
+
+    st.write("### 💬 상담 기록")
+    
+    # 현재 사용자 정보와 로그아웃 버튼
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(f"**👤 현재 사용자:** {st.session_state.user['username']}")
+    with col2:
+        if st.button("로그아웃", use_container_width=True):
+            st.session_state.generator.user_manager.logout()
+            st.rerun()
+    
+    st.markdown("---")  # 구분선 추가
+    
+    if st.button("✨ 새로운 상담 시작하기", type="primary", use_container_width=True):
+        st.session_state.current_session_id = None
+        st.session_state.consultation_text = ""
+        st.session_state.generated_complaint = ""
+        st.rerun()
+
+    # 세션 목록 가져오기
+    sessions = st.session_state.generator.session_manager.get_sessions()
+    
+    if not sessions:
+        st.info("아직 상담 기록이 없습니다.")
+        return
+
+    # 세션 목록 표시
+    for idx, session in enumerate(reversed(sessions)):
+        with st.expander(f"상담 {idx + 1} - {session.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+            st.markdown("#### 상담 내용")
+            st.write(session.consultation_text)
+            
+            st.markdown("#### 생성된 소장")
+            st.write(session.generated_content)
+            
+            # 평가 섹션
+            st.markdown("#### 평가")
+            if hasattr(session, 'rating') and session.rating:
+                st.write(f"⭐ 평점: {session.rating}")
+            if hasattr(session, 'feedback') and session.feedback:
+                st.write(f"💭 피드백: {session.feedback}")
+            
+            # 현재 세션이 아닌 경우에만 '이 버전 사용' 버튼 표시
+            if session.session_id != st.session_state.current_session_id:
+                if st.button("이 버전 사용", key=f"use_version_{session.session_id}", use_container_width=True):
+                    st.session_state.current_session_id = session.session_id
+                    st.rerun()
 
 class STTManager:
     def __init__(self):
@@ -165,6 +352,7 @@ class MongoDBManager:
         self.conversations = self.db['conversations']
         self.documents = self.db['document_chunks']
         self.feedback = self.db['feedback']
+        self.users = self.db['users']
         
         # 인덱스 생성
         self.documents.create_index([("chunk_hash", 1)], unique=True)
@@ -335,6 +523,7 @@ class DivorceComplaintGenerator:
         self.mongo_db = MongoDBManager(mongo_uri)
         self.session_manager = SessionManager()
         self.rl_learner = ReinforcementLearner(self.mongo_db)
+        self.user_manager = UserManager(self.mongo_db)
     
     def generate_complaint(self, consultation_text: str) -> dict:
         """소장 생성"""
@@ -498,56 +687,6 @@ def initialize_session_state():
     if 'session_manager' not in st.session_state:
         st.session_state.session_manager = SessionManager()
 
-def display_sessions():
-    st.subheader("세션 기록")
-    
-    # 세션 목록 가져오기
-    sessions = st.session_state.session_manager.get_sessions() if hasattr(st.session_state, 'session_manager') else []
-    
-    if not sessions:
-        st.info("저장된 세션이 없습니다. 새로운 상담을 시작해보세요.")
-        return
-        
-    # 2분할 컬럼 생성
-    col1, col2 = st.columns(2)
-    
-    # 세션을 두 그룹으로 나누기
-    half_length = len(sessions) // 2
-    first_half = sessions[:half_length]
-    second_half = sessions[half_length:]
-    
-    # 첫 번째 컬럼에 세션 표시
-    with col1:
-        st.markdown("#### 최근 세션")
-        for session in first_half:
-            with st.expander(f"세션 ID: {session.session_id[:8]}... ({session.timestamp.strftime('%Y-%m-%d %H:%M')})"):
-                st.markdown("**상담 내용:**")
-                st.write(session.consultation_text if session.consultation_text else "상담 내용이 없습니다.")
-                if session.generated_content:
-                    st.markdown("**생성된 소장:**")
-                    st.write(session.generated_content)
-                if session.rating:
-                    st.markdown(f"**평가:** {'⭐' * session.rating}")
-                if session.feedback:
-                    st.markdown("**피드백:**")
-                    st.write(session.feedback)
-    
-    # 두 번째 컬럼에 세션 표시
-    with col2:
-        st.markdown("#### 이전 세션")
-        for session in second_half:
-            with st.expander(f"세션 ID: {session.session_id[:8]}... ({session.timestamp.strftime('%Y-%m-%d %H:%M')})"):
-                st.markdown("**상담 내용:**")
-                st.write(session.consultation_text if session.consultation_text else "상담 내용이 없습니다.")
-                if session.generated_content:
-                    st.markdown("**생성된 소장:**")
-                    st.write(session.generated_content)
-                if session.rating:
-                    st.markdown(f"**평가:** {'⭐' * session.rating}")
-                if session.feedback:
-                    st.markdown("**피드백:**")
-                    st.write(session.feedback)
-
 def display_complaint_actions():
     if st.session_state.generated_complaint:
         st.markdown("---")
@@ -562,7 +701,7 @@ def display_complaint_actions():
                 height=300
             )
             
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns([1, 1])
             with col1:
                 if st.button("저장"):
                     st.session_state.generated_complaint = edited_complaint
@@ -576,7 +715,7 @@ def display_complaint_actions():
             # 조회 모드
             st.markdown(st.session_state.generated_complaint)
             
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns([1, 1])
             with col1:
                 if st.button("수정"):
                     st.session_state.edit_mode = True
@@ -632,6 +771,7 @@ def display_complaint_actions():
                         st.error(f"평가 저장 중 오류가 발생했습니다: {str(e)}")
             else:
                 st.info("이미 평가를 제출하셨습니다. 감사합니다!")
+
 def main():
     st.set_page_config(
         page_title="법률 상담 도우미",
@@ -681,95 +821,120 @@ def main():
         st.session_state.evaluation_submitted = False
     
     # 2분할 레이아웃
-    left_col, right_col = st.columns([1, 3])
+    left_col, right_col = st.columns([2, 8])
     
-    # 왼쪽 컬럼 - 세션 목록
+    # 왼쪽 사이드바 - 세션 목록
     with left_col:
-        st.title("세션 기록")
-        sessions = st.session_state.session_manager.get_sessions()
-        
-        if not sessions:
-            st.info("저장된 세션이 없습니다.")
-        else:
-            for session in sessions:
-                with st.expander(f"📝 {session.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-                    if session.consultation_text:
-                        st.markdown("**상담 내용:**")
-                        st.write(session.consultation_text[:100] + "..." if len(session.consultation_text) > 100 else session.consultation_text)
-                    if session.rating:
-                        st.markdown(f"**평가:** {'⭐' * session.rating}")
+        if st.session_state.generator.user_manager.is_logged_in():
+            display_sessions()
     
     # 오른쪽 컬럼 - 메인 컨텐츠
     with right_col:
-        st.title("⚖️ 법률 상담 도우미")
+        st.title("히어로 법률 도우미")
         
-        # 상담 입력
-        consultation_text = st.text_area(
-            "상담 내용을 입력하세요",
-            value=st.session_state.get("consultation_text", ""),
-            placeholder="상담 내용을 입력해주세요...",
-            height=150
-        )
-        
-        # 음성 입력 컨트롤
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            stt_engine = st.selectbox(
-                "STT 엔진 선택",
-                ["Whisper", "GCP STT"],
-                key="stt_engine"
-            )
-        with col2:
-            # 녹음 상태 표시
-            if st.session_state.recording:
-                st.info("🎙️ 녹음 중...")
+        # 로그인/회원가입 섹션
+        if not st.session_state.generator.user_manager.is_logged_in():
+            tab1, tab2 = st.tabs(["로그인", "회원가입"])
             
-            # 녹음 버튼
-            button_text = "⏹️ 녹음 중지" if st.session_state.recording else "🎤 녹음 시작"
-            if st.button(button_text):
-                if not st.session_state.recording:
-                    if st.session_state.stt_manager.start_recording(engine=stt_engine.lower()):
-                        st.session_state.recording = True
-                        print("RECORDING START")
+            with tab1:
+                username = st.text_input("사용자 이름", key="login_username")
+                password = st.text_input("비밀번호", type="password", key="login_password")
+                if st.button("로그인"):
+                    if st.session_state.generator.user_manager.login(username, password):
+                        st.success("로그인 성공")
                         st.rerun()
-                else:
-                    print("RECORDING STOP")
-                    st.info("변환 중...")
-                    transcribed_text = st.session_state.stt_manager.stop_recording()
-                    print("Transcribing to STT...")
-                    if transcribed_text:
-                        print(f"Transcribed text: {transcribed_text}")
-                        if not st.session_state.consultation_text:
-                            st.session_state.consultation_text = transcribed_text
+                    else:
+                        st.error("로그인 실패")
+            
+            with tab2:
+                reg_username = st.text_input("사용자 이름", key="reg_username")
+                reg_password = st.text_input("비밀번호", type="password", key="reg_password")
+                reg_password_confirm = st.text_input("비밀번호 확인", type="password")
+                
+                if st.button("회원가입"):
+                    if reg_password != reg_password_confirm:
+                        st.error("비밀번호가 일치하지 않습니다.")
+                    else:
+                        success, message = st.session_state.generator.user_manager.register(reg_username, reg_password)
+                        if success:
+                            st.success(message)
+                            # 자동 로그인
+                            if st.session_state.generator.user_manager.login(reg_username, reg_password):
+                                st.rerun()
                         else:
-                            st.session_state.consultation_text += " " + transcribed_text
-                    st.session_state.recording = False
-                    st.rerun()
+                            st.error(message)
         
-        # 소장 생성 버튼
-        if st.button("소장 생성", type="primary"):
-            if consultation_text:
-                with st.spinner("소장을 생성하고 있습니다..."):
-                    try:
-                        # 소장 생성
-                        complaint = st.session_state.generator.generate_complaint(consultation_text)
-                        st.session_state.generated_complaint = complaint
-                        
-                        # 세션 기록과 MongoDB에 저장
-                        st.session_state.session_manager.save_session(consultation_text, complaint)
-                        st.session_state.generator.mongo_db.save_conversation(
-                            st.session_state.session_manager.get_sessions()[-1].session_id,
-                            consultation_text,
-                            complaint
-                        )
-                        
+        # 로그인된 경우에만 메인 기능 표시
+        if st.session_state.generator.user_manager.is_logged_in():
+            # 상담 입력
+            consultation_text = st.text_area(
+                "상담 내용을 입력하세요",
+                value=st.session_state.get("consultation_text", ""),
+                placeholder="상담 내용을 입력해주세요...",
+                height=200
+            )
+            
+            # 음성 입력 컨트롤
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                stt_engine = st.selectbox(
+                    "음성 인식 엔진",
+                    ["Whisper", "GCP"],
+                    key="stt_engine",
+                    label_visibility="collapsed"  # 레이블 숨기기
+                )
+            with col2:
+                # 녹음 상태 표시
+                if st.session_state.recording:
+                    st.info("🎙️ 녹음 중...")
+                
+                # 녹음 버튼
+                button_text = "⏹️ 녹음 중지" if st.session_state.recording else "🎤 녹음 시작"
+                if st.button(button_text, use_container_width=True):  # 버튼 너비를 컨테이너에 맞춤
+                    if not st.session_state.recording:
+                        if st.session_state.stt_manager.start_recording(engine=stt_engine.lower()):
+                            st.session_state.recording = True
+                            print("RECORDING START")
+                            st.rerun()
+                    else:
+                        print("RECORDING STOP")
+                        st.info("변환 중...")
+                        transcribed_text = st.session_state.stt_manager.stop_recording()
+                        print("Transcribing to STT...")
+                        if transcribed_text:
+                            print(f"Transcribed text: {transcribed_text}")
+                            if not st.session_state.consultation_text:
+                                st.session_state.consultation_text = transcribed_text
+                            else:
+                                st.session_state.consultation_text += " " + transcribed_text
+                        st.session_state.recording = False
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"오류가 발생했습니다: {str(e)}")
-            else:
-                st.warning("상담 내용을 입력해주세요.")
+            
+            # 소장 생성 버튼
+            if st.button("소장 생성", type="primary"):
+                if consultation_text:
+                    with st.spinner("소장을 생성하고 있습니다..."):
+                        try:
+                            # 소장 생성
+                            complaint = st.session_state.generator.generate_complaint(consultation_text)
+                            st.session_state.generated_complaint = complaint
+                            
+                            # 세션 기록과 MongoDB에 저장
+                            st.session_state.session_manager.save_session(consultation_text, complaint)
+                            st.session_state.generator.mongo_db.save_conversation(
+                                st.session_state.session_manager.get_sessions()[-1].session_id,
+                                consultation_text,
+                                complaint
+                            )
+                            
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"오류가 발생했습니다: {str(e)}")
+                else:
+                    st.warning("상담 내용을 입력해주세요.")
 
-        # 소장 평가 및 수정 UI 표시
-        display_complaint_actions()
+            # 소장 평가 및 수정 UI 표시
+            display_complaint_actions()
+
 if __name__ == "__main__":
     main()
