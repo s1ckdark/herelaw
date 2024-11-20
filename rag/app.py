@@ -26,6 +26,19 @@ from whisper_stt import AudioTranscriber
 import extra_streamlit_components as stx
 from datetime import timedelta
 
+# .env 파일 로드
+load_dotenv()
+
+def get_database():
+    """MongoDB 데이터베이스 연결을 반환합니다."""
+    # MongoDB 연결 정보
+    MONGODB_URI = os.getenv('MONGO_URI')  # .env 파일의 MONGO_URI 사용
+    MONGODB_DB = os.getenv('MONGODB_DB', 'herelaw')
+    
+    # MongoDB 클라이언트 생성
+    client = MongoClient(MONGODB_URI)
+    return client[MONGODB_DB]
+
 class Session:
     def __init__(self, session_id, timestamp, consultation_text="", generated_content="", rating=None, feedback=""):
         self.session_id = session_id
@@ -251,7 +264,7 @@ def display_sessions():
         st.rerun()
 
     # 세션 목록 가져오기
-    sessions = st.session_state.generator.session_manager.get_sessions()
+    sessions = st.session_state.session_manager.get_sessions()
     
     if not sessions:
         st.info("아직 상담 기록이 없습니다.")
