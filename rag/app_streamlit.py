@@ -29,6 +29,7 @@ from gcpApi import audio_to_text as gcp_transcribe
 from whisperApi import AudioTranscriber
 import extra_streamlit_components as stx
 from datetime import timedelta
+import requests
 
 # .env 파일 로드
 load_dotenv()
@@ -236,407 +237,86 @@ class SessionManager:
                     return True
         return False
 
-def display_sessions():
-    """Display the list of sessions recorded by the user.
-
-    This function displays the list of sessions recorded by the user.
-    It also provides a button to start a new session and a button to use a specific session.
-
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    None
-    """
-    if not st.session_state.user:
-        return
-
-    st.write("### 💬 상담 기록")
-    
-    # Display the current user information and the logout button
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown(f"**👤 현재 사용자:** {st.session_state.user['username']}")
-    with col2:
-        if st.button("로그아웃", use_container_width=True):
-            st.session_state.generator.user_manager.logout()
-            st.rerun()
-    
-    st.markdown("---")  # Add a separator
-    
-    if st.button("✨ 새로운 상담 시작하기", type="primary", use_container_width=True):
-        st.session_state.current_session_id = None
-        st.session_state.consultation_text = ""
-        st.session_state.generated_complaint = ""
-        st.rerun()
-
-    # Get the list of sessions
-    sessions = st.session_state.session_manager.get_sessions()
-    
-    if not sessions:
-        st.info("아직 상담 기록이 없습니다.")
-        return
-
-    # Display the list of sessions
-    for idx, session in enumerate(reversed(sessions)):
-        with st.expander(f"상담 {idx + 1} - {session.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-            st.markdown("#### 상담 내용")
-            st.write(session.consultation_text)
-            
-            st.markdown("#### 생성된 소장")
-            st.write(session.generated_content)
-            
-            # Display the evaluation section
-            st.markdown("#### 평가")
-            if hasattr(session, 'rating') and session.rating:
-                st.write(f"⭐ 평점: {session.rating}")
-            if hasattr(session, 'feedback') and session.feedback:
-                st.write(f"💭 피드백: {session.feedback}")
-            
-            # Display the "Use this version" button if the current session is not the same as the session being displayed
-            if session.session_id != st.session_state.current_session_id:
-                if st.button("이 버전 사용", key=f"use_version_{session.session_id}", use_container_width=True):
-                    st.session_state.current_session_id = session.session_id
-                    st.rerun()
-
 class STTManager:
-    def __init__(self):
-        print("Initializing STT Manager...")
-        self.whisper_transcriber = AudioTranscriber()
-        self.recording = False
+    def __init__(self, openai_api_key=None):
+        """
+        STT(Speech-to-Text) 관리자 클래스 초기화
         
-        if "audio_data" not in st.session_state:
-            st.session_state.audio_data = None
-            
-        if "audio_processing_complete" not in st.session_state:
-            st.session_state.audio_processing_complete = False
-        
-        # Add JavaScript for browser-based recording with enhanced error handling
-        self.recording_html = """
-            <div style="padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
-                <button id="recordToggle" onclick="toggleRecording()"
-                    style="background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px;">
-                    녹음 시작
-                </button>
-                <audio id="audioPlayback" controls style="display: none; margin-top: 10px; width: 100%;"></audio>
-                <div id="recordingStatus" style="margin-top: 10px; color: #666;"></div>
-                <div id="errorMessage" style="margin-top: 10px; color: #f44336;"></div>
-                <div id="audioLog" style="margin-top: 10px; color: #666; font-size: 0.8em;"></div>
-            </div>
-            
-            <script>
-            let mediaRecorder;
-            let audioChunks = [];
-            let isRecording = false;
-            let startTime;
-            let audioLogInterval;
-            let audioContext;
-            let stream;
-            
-            // Streamlit 컴포넌트 통신 설정
-            const Streamlit = {
-                setComponentValue: function(value) {
-                    window.parent.postMessage({
-                        type: 'streamlit:setComponentValue',
-                        value: value
-                    }, '*');
-                }
-            };
-            
-            function updateAudioLog(level) {
-                const audioLog = document.getElementById('audioLog');
-                const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-                audioLog.textContent = `녹음 시간: ${duration}초 | 음성 레벨: ${level.toFixed(2)}`;
-            }
-            
-            async function checkMicrophonePermission() {
-                try {
-                    const result = await navigator.permissions.query({ name: 'microphone' });
-                    return result.state;
-                } catch (err) {
-                    console.log('Permission API not supported');
-                    return 'unknown';
-                }
-            }
-            
-            async function toggleRecording() {
-                const button = document.getElementById('recordToggle');
-                const errorMessageDiv = document.getElementById('errorMessage');
-                const statusDiv = document.getElementById('recordingStatus');
-                const audioLog = document.getElementById('audioLog');
-                
-                if (!isRecording) {
-                    // Start recording
-                    errorMessageDiv.textContent = '';
-                    audioLog.textContent = '';
-                    try {
-                        statusDiv.textContent = '마이크 권한을 확인중입니다...';
-                        
-                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                            throw new Error('이 브라우저는 마이크 접근을 지원하지 않습니다. Chrome이나 Firefox를 사용해주세요.');
-                        }
-                        
-                        const permissionStatus = await checkMicrophonePermission();
-                        if (permissionStatus === 'denied') {
-                            throw new Error('마이크 접근이 차단되어 있습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.');
-                        }
-                        
-                        statusDiv.textContent = '마이크 연결중...';
-                        stream = await navigator.mediaDevices.getUserMedia({ 
-                            audio: {
-                                echoCancellation: true,
-                                noiseSuppression: true,
-                                sampleRate: 44100
-                            }
-                        });
-                        
-                        if (!stream.getAudioTracks().length) {
-                            throw new Error('사용 가능한 마이크 장치가 없습니다. 장치 설정을 확인하세요.');
-                        }
+        Args:
+            openai_api_key (str, optional): OpenAI API 키
+        """
+        self.openai_api_key = openai_api_key
 
-                        // Create AudioContext for volume monitoring
-                        audioContext = new AudioContext();
-                        const source = audioContext.createMediaStreamSource(stream);
-                        const analyser = audioContext.createAnalyser();
-                        analyser.fftSize = 256;
-                        source.connect(analyser);
-                        
-                        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                        startTime = Date.now();
-                        
-                        // Start volume monitoring
-                        audioLogInterval = setInterval(() => {
-                            analyser.getByteFrequencyData(dataArray);
-                            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                            const normalizedLevel = average / 128.0;  // Normalize to 0-1
-                            updateAudioLog(normalizedLevel);
-                        }, 100);
-                        
-                        mediaRecorder = new MediaRecorder(stream, {
-                            mimeType: 'audio/webm;codecs=opus'
-                        });
-                        
-                        mediaRecorder.ondataavailable = (event) => {
-                            if (event.data.size > 0) {
-                                audioChunks.push(event.data);
-                                console.log(`Audio chunk received: ${event.data.size} bytes`);
-                            }
-                        };
-                        
-                        mediaRecorder.onstop = async () => {
-                            try {
-                                clearInterval(audioLogInterval);
-                                audioLog.textContent = '';
-                                statusDiv.textContent = '녹음된 오디오를 처리중입니다...';
-                                
-                                const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-                                console.log(`Total audio size: ${audioBlob.size} bytes`);
-                                
-                                if (audioBlob.size === 0) {
-                                    throw new Error('녹음된 오디오 데이터가 없습니다.');
-                                }
-                                
-                                // 오디오 재생기에 녹음된 오디오 설정
-                                const audioURL = URL.createObjectURL(audioBlob);
-                                const audioPlayback = document.getElementById('audioPlayback');
-                                audioPlayback.src = audioURL;
-                                audioPlayback.style.display = 'block';
-                                
-                                const reader = new FileReader();
-                                
-                                reader.onloadend = () => {
-                                    try {
-                                        const base64data = reader.result.split(',')[1];
-                                        console.log('Sending audio data to server...');
-                                        
-                                        // Streamlit 컴포넌트 값 업데이트
-                                        Streamlit.setComponentValue({
-                                            data: base64data,
-                                            status: 'completed'
-                                        });
-                                        console.log('Audio data sent to Streamlit session state');
-                                        
-                                        // 상태 업데이트
-                                        statusDiv.textContent = '녹음이 완료되었습니다. 음성을 텍스트로 변환하는 중...';
-                                    } catch (error) {
-                                        console.error('Error sending audio data:', error);
-                                        errorMessageDiv.textContent = '오디오 데이터 전송 중 오류가 발생했습니다.';
-                                    }
-                                };
-                                
-                                reader.onerror = (error) => {
-                                    console.error('Error reading audio blob:', error);
-                                    errorMessageDiv.textContent = '오디오 데이터 읽기 중 오류가 발생했습니다.';
-                                };
-                                
-                                reader.readAsDataURL(audioBlob);
-                                audioChunks = [];
-                                
-                                // Stop all tracks and cleanup
-                                stream.getTracks().forEach(track => {
-                                    track.stop();
-                                    console.log('Audio track stopped');
-                                });
-                                
-                                if (audioContext) {
-                                    await audioContext.close();
-                                    console.log('Audio context closed');
-                                }
-                                
-                            } catch (error) {
-                                console.error('Error in onstop handler:', error);
-                                errorMessageDiv.textContent = error.message || '오디오 처리 중 오류가 발생했습니다.';
-                            } finally {
-                                // Reset recording state
-                                button.style.backgroundColor = '#4CAF50';
-                                button.textContent = '녹음 시작';
-                                isRecording = false;
-                                statusDiv.textContent = '녹음이 완료되었습니다.';
-                            }
-                        };
-                        
-                        mediaRecorder.onerror = (event) => {
-                            console.error('MediaRecorder error:', event.error);
-                            errorMessageDiv.textContent = '녹음 중 오류가 발생했습니다.';
-                        };
-                        
-                        mediaRecorder.start(1000); // Collect data every second
-                        button.style.backgroundColor = '#f44336';
-                        button.textContent = '녹음 중지';
-                        statusDiv.textContent = '녹음중...';
-                        isRecording = true;
-                        
-                    } catch (err) {
-                        console.error('Recording error:', err);
-                        errorMessageDiv.textContent = err.message || '마이크 접근 중 오류가 발생했습니다. 마이크가 연결되어 있는지 확인해주세요.';
-                        statusDiv.textContent = '';
-                        audioLog.textContent = '';
-                        button.style.backgroundColor = '#4CAF50';
-                        button.textContent = '녹음 시작';
-                        isRecording = false;
-                        if (audioLogInterval) {
-                            clearInterval(audioLogInterval);
-                        }
-                    }
-                } else {
-                    // Stop recording
-                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                        mediaRecorder.stop();
-                        clearInterval(audioLogInterval);
-                        audioLog.textContent = '';
-                    }
-                }
-            }
+    def convert_webm_to_wav(self, webm_path, wav_path):
+        """
+        WebM 파일을 WAV 형식으로 변환합니다.
+        
+        Args:
+            webm_path (str): WebM 파일 경로
+            wav_path (str): 저장할 WAV 파일 경로
+        """
+        from moviepy.editor import AudioFileClip
+        
+        audio = AudioFileClip(webm_path)
+        audio.write_audiofile(wav_path)
+        audio.close()
+
+    def transcribe_with_whisper(self, audio_path):
+        """
+        오디오 파일을 Whisper API를 사용하여 텍스트로 변환합니다.
+        
+        Args:
+            audio_path (str): 오디오 파일 경로
+        
+        Returns:
+            str: 변환된 텍스트
+        """
+        import openai
+        
+        if not self.openai_api_key:
+            raise ValueError("OpenAI API key is required for Whisper transcription")
+        
+        openai.api_key = self.openai_api_key
+        
+        with open(audio_path, "rb") as audio_file:
+            transcript = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file
+            )
+        
+        return transcript["text"]
+
+    def process_webm_to_text(self, webm_path):
+        """
+        WebM 파일을 WAV로 변환하고 텍스트로 변환합니다.
+        
+        Args:
+            webm_path (str): WebM 파일 경로
+        
+        Returns:
+            str: 변환된 텍스트
+        """
+        import os
+        
+        # WAV 파일 경로 생성
+        wav_path = os.path.splitext(webm_path)[0] + ".wav"
+        
+        try:
+            # WebM을 WAV로 변환
+            self.convert_webm_to_wav(webm_path, wav_path)
             
-            // Check initial microphone permission
-            checkMicrophonePermission().then(status => {
-                if (status === 'denied') {
-                    document.getElementById('errorMessage').textContent = 
-                        '마이크 접근이 차단되어 있습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.';
-                }
-            });
-            </script>
-        """
-        
-        st.components.v1.html(self.recording_html, height=200)
-        
-        if "audio_data" not in st.session_state:
-            st.session_state.audio_data = None
-        
-        # Display processing status
-        if st.session_state.get("audio_data") and not st.session_state.get("audio_processing_complete"):
-            st.info("음성을 텍스트로 변환하는 중입니다...")
-        elif st.session_state.get("audio_processing_complete"):
-            st.success("음성이 텍스트로 변환되었습니다!")
-            st.session_state.audio_processing_complete = False  # Reset for next recording
-        
-    def start_recording(self):
-        """마이크 녹음을 시작합니다."""
-        st.components.v1.html(self.recording_html, height=200)
-        
-        # 컴포넌트로부터 오디오 데이터 받기
-        component_value = st.session_state.get("_component_value")
-        if component_value and isinstance(component_value, dict):
-            if component_value.get('status') == 'completed':
-                print("Received audio data from component")  # Debug log
-                st.session_state.audio_data = component_value.get('data')
-                st.session_state._component_value = None  # 컴포넌트 값 초기화
-                st.experimental_rerun()  # 페이지 새로고침
-        
-        # 오디오 처리 상태 표시
-        if st.session_state.get("audio_data") and not st.session_state.get("audio_processing_complete"):
-            st.info("음성을 텍스트로 변환하는 중입니다...")
-        elif st.session_state.get("audio_processing_complete"):
-            st.success("음성이 텍스트로 변환되었습니다!")
-            st.session_state.audio_processing_complete = False  # 다음 녹음을 위해 초기화
-    
-    def stop_recording(self, engine="whisper"):
-        """
-        녹음된 오디오를 텍스트로 변환합니다.
-        engine: 'whisper' 또는 'gcp' 중 선택
-        """
-        if st.session_state.get("audio_data"):
-            try:
-                # 프로그레스바 초기화
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # 1단계: 오디오 데이터 디코딩 (25%)
-                status_text.text("오디오 데이터를 디코딩하는 중...")
-                audio_data = base64.b64decode(st.session_state.audio_data)
-                progress_bar.progress(25)
-                
-                # 2단계: 임시 파일 생성 (50%)
-                status_text.text("오디오 파일을 생성하는 중...")
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_audio:
-                    temp_audio.write(audio_data)
-                    temp_audio_path = temp_audio.name
-                progress_bar.progress(50)
-                
-                # 3단계: 음성을 텍스트로 변환 (75%)
-                status_text.text("음성을 텍스트로 변환하는 중...")
-                if engine == "whisper":
-                    transcribed_text = self.whisper_transcriber.transcribe(temp_audio_path)
-                else:  # gcp
-                    transcribed_text = gcp_transcribe(temp_audio_path)
-                
-                if not transcribed_text:
-                    raise Exception("음성 변환에 실패했습니다.")
-                    
-                progress_bar.progress(75)
-                
-                # 4단계: 임시 파일 정리 및 완료 (100%)
-                status_text.text("임시 파일을 정리하는 중...")
-                os.unlink(temp_audio_path)
-                progress_bar.progress(100)
-                
-                # 완료 메시지
-                status_text.success("음성 변환이 완료되었습니다!")
-                
-                # 세션 상태 업데이트
-                st.session_state.audio_data = None
-                st.session_state.audio_processing_complete = True
-                
-                # 변환된 텍스트를 상담 내용에 추가
-                if transcribed_text:
-                    current_text = st.session_state.get("consultation_text", "")
-                    if current_text:
-                        st.session_state.consultation_text = current_text + "\n" + transcribed_text
-                    else:
-                        st.session_state.consultation_text = transcribed_text
-                    
-                    st.info(f"음성 인식 결과 ({engine}): {transcribed_text}")
-                    
-            except Exception as e:
-                st.error(f"오류가 발생했습니다: {str(e)}")
-                print(f"Error in stop_recording: {str(e)}")
-            finally:
-                if 'progress_bar' in locals():
-                    progress_bar.empty()
-                if 'status_text' in locals():
-                    status_text.empty()
+            # WAV 파일을 텍스트로 변환
+            text = self.transcribe_with_whisper(wav_path)
+            
+            return text
+            
+        except Exception as e:
+            raise e
+            
+        finally:
+            # 임시 WAV 파일 삭제
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
 
 class MongoDBManager:
     def __init__(self, uri):
@@ -654,7 +334,6 @@ class MongoDBManager:
         self.feedback.create_index([("session_id", 1)])
     
     def save_chunk(self, content: str, doc_type: str, embedding: List[float]):
-        """문서 청크 저장"""
         chunk_hash = hashlib.md5(content.encode()).hexdigest()
         if not self.documents.find_one({"chunk_hash": chunk_hash}):
             self.documents.insert_one({
@@ -666,7 +345,6 @@ class MongoDBManager:
             })
     
     def save_conversation(self, session_id: str, user_input: str, generated_content: Dict):
-        """대화 내용을 MongoDB에 저장"""
         conversation = {
             "session_id": session_id,
             "timestamp": datetime.now(),
@@ -677,7 +355,6 @@ class MongoDBManager:
         return conversation
 
     def get_similar_chunks(self, query_embedding: List[float], doc_type: str, k: int = 3):
-        """유사한 청크 검색"""
         raise NotImplementedError("Vector search not implemented in this example.")
 
     def save_feedback(self, session_id: str, complaint: str, features: List[float], 
@@ -732,7 +409,7 @@ class ReinforcementLearner:
         """소장에서 특징 추출"""
         features = []
         
-        # 1. 문서 길이
+        # 1. 문서 길���
         features.append(len(complaint))
         
         # 2. 주요 섹션 포함 여부
@@ -793,7 +470,7 @@ class ReinforcementLearner:
 
 class DivorceComplaintGenerator:
     def __init__(self):
-        # 환경 변수에서 값 로드
+        # 환 변수에서 값 로드
         api_key = os.getenv("OPENAI_API_KEY")
         mongo_uri = os.getenv("MONGO_URI")
         endpoint = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
@@ -819,6 +496,7 @@ class DivorceComplaintGenerator:
         self.session_manager = SessionManager()
         self.rl_learner = ReinforcementLearner(self.mongo_db)
         self.user_manager = UserManager(self.mongo_db)
+        self.stt_manager = STTManager(api_key)
     
     def generate_complaint(self, consultation_text: str) -> dict:
         """소장 생성"""
@@ -944,7 +622,7 @@ class DocumentExporter:
         title_run.bold = True
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # 본문 추가
+        # 본문 추
         sections = complaint_text.split('\n\n')
         for section in sections:
             p = doc.add_paragraph()
@@ -981,6 +659,71 @@ def initialize_session_state():
         st.session_state.generator = DivorceComplaintGenerator()
     if 'session_manager' not in st.session_state:
         st.session_state.session_manager = SessionManager()
+
+def display_sessions():
+    """Display the list of sessions recorded by the user.
+
+    This function displays the list of sessions recorded by the user.
+    It also provides a button to start a new session and a button to use a specific session.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+    """
+    if not st.session_state.user:
+        return
+
+    st.write("### 💬 상담 기록")
+    
+    # Display the current user information and the logout button
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(f"**👤 현재 사용자:** {st.session_state.user['username']}")
+    with col2:
+        if st.button("로그아웃", use_container_width=True):
+            st.session_state.generator.user_manager.logout()
+            st.rerun()
+    
+    st.markdown("---")  # Add a separator
+    
+    if st.button("✨ 새로운 상담 시작하기", type="primary", use_container_width=True):
+        st.session_state.current_session_id = None
+        st.session_state.consultation_text = ""
+        st.session_state.generated_complaint = ""
+        st.rerun()
+
+    # Get the list of sessions
+    sessions = st.session_state.session_manager.get_sessions()
+    
+    if not sessions:
+        st.info("아직 상담 기록이 없습니다.")
+        return
+
+    # Display the list of sessions
+    for idx, session in enumerate(reversed(sessions)):
+        with st.expander(f"상담 {idx + 1} - {session.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+            st.markdown("#### 상담 내용")
+            st.write(session.consultation_text)
+            
+            st.markdown("#### 생성된 소장")
+            st.write(session.generated_content)
+            
+            # Display the evaluation section
+            st.markdown("#### 평가")
+            if hasattr(session, 'rating') and session.rating:
+                st.write(f"⭐ 평점: {session.rating}")
+            if hasattr(session, 'feedback') and session.feedback:
+                st.write(f"💭 피드백: {session.feedback}")
+            
+            # Display the "Use this version" button if the current session is not the same as the session being displayed
+            if session.session_id != st.session_state.current_session_id:
+                if st.button("이 버전 사용", key=f"use_version_{session.session_id}", use_container_width=True):
+                    st.session_state.current_session_id = session.session_id
+                    st.rerun()
 
 def display_complaint_actions():
     if st.session_state.generated_complaint:
@@ -1115,6 +858,27 @@ def main():
     if "evaluation_submitted" not in st.session_state:
         st.session_state.evaluation_submitted = False
     
+    # 오디오 처리 라우트
+    if 'process_audio' in st.query_params:
+        audio_file = st.files['audio']
+        timestamp = st.form_data['timestamp']
+        
+        if audio_file is not None:
+            stt_manager = STTManager()
+            result = stt_manager.process_webm_to_text(audio_file.name)
+            
+            if result:
+                st.json({
+                    'status': 'success',
+                    'text': result
+                })
+            else:
+                st.json({
+                    'status': 'error',
+                    'message': '오디오 처리 실패'
+                })
+        return
+    
     # 2분할 레이아웃
     left_col, right_col = st.columns([2, 8])
     
@@ -1126,22 +890,7 @@ def main():
     # 오른쪽 컬럼 - 메인 컨텐츠
     with right_col:
         st.title("히어로 법률 도우미")
-        
-        # 쿠키 테스트
-        st.write("### 쿠키 테스트")
-        test_cookie_manager = stx.CookieManager(key="test_cookie")
-        
-        # 쿠키 읽기 테스트
-        if st.button("테스트 쿠키 읽기"):
-            try:
-                value = test_cookie_manager.get("username")
-                if value:
-                    st.success(f"쿠키 값: {value}")
-                else:
-                    st.warning("쿠키를 찾을 수 없습니다")
-            except Exception as e:
-                st.error(f"쿠키 읽기 실패: {str(e)}")
-        
+               
         # 로그인/회원가입 섹션
         if not st.session_state.generator.user_manager.is_logged_in():
             # 쿠키에서 username 확인
@@ -1169,7 +918,7 @@ def main():
                             st.success("로그인되었습니다!")
                             st.rerun()
                         else:
-                            st.error("로그인에 실패했습니다. 사용자 이름과 비밀번호를 확인해주세요.")
+                            st.error("로그인에 실패했습니다. 사용자 이름과 비밀번��를 확인해주세요.")
                 
                 with tab2:
                     new_username = st.text_input("사용자 이름", key="register_username")
@@ -1211,18 +960,190 @@ def main():
                 )
             
             # 마이크 입력 처리
-            st.session_state.stt_manager.start_recording()
+            recording_html = """
+                <div style="padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <button id="recordToggle" onclick="toggleRecording()"
+                        style="background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px;">
+                        녹음 시작
+                    </button>
+                    <audio id="audioPlayback" controls style="display: none; margin-top: 10px; width: 100%;"></audio>
+                    <div id="recordingStatus" style="margin-top: 10px; color: #666;"></div>
+                    <div id="errorMessage" style="margin-top: 10px; color: #f44336;"></div>
+                    <div id="audioLog" style="margin-top: 10px; color: #666; font-size: 0.8em;"></div>
+                </div>
+                
+                <script>
+                    let mediaRecorder;
+                    let audioChunks = [];
+                    let isRecording = false;
+                    let audioLogInterval;
+                    
+                    const statusDiv = document.getElementById('recordingStatus');
+                    const errorDiv = document.getElementById('errorMessage');
+                    const audioLog = document.getElementById('audioLog');
+                    const recordButton = document.getElementById('recordToggle');
+                    
+                    async function toggleRecording() {
+                        try {
+                            if (!isRecording) {
+                                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                mediaRecorder = new MediaRecorder(stream, {
+                                    mimeType: 'audio/webm;codecs=opus'
+                                });
+                                
+                                audioChunks = [];
+                                
+                                mediaRecorder.ondataavailable = (event) => {
+                                    audioChunks.push(event.data);
+                                };
+                                
+                                mediaRecorder.onstop = async () => {
+                                    try {
+                                        clearInterval(audioLogInterval);
+                                        audioLog.textContent = '';
+                                        statusDiv.textContent = '녹음된 오디오를 처리중입니다...';
+
+                                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                                        console.log(`Total audio size: ${audioBlob.size} bytes`);
+
+                                        if (audioBlob.size === 0) {
+                                            throw new Error('녹음된 오디오 데이터가 없습니다.');
+                                        }
+
+                                        // 오디오 재생기 설정
+                                        const audioURL = URL.createObjectURL(audioBlob);
+                                        const audioPlayback = document.getElementById('audioPlayback');
+                                        audioPlayback.src = audioURL;
+                                        audioPlayback.style.display = 'block';
+
+                                        // Blob을 base64로 변환 및 파일 저장
+                                        console.log("Converting audio blob to base64 and saving file...");
+                                        const reader = new FileReader();
+                                        reader.readAsDataURL(audioBlob);
+
+                                        reader.onloadend = function () {
+                                            const base64Audio = reader.result.split(',')[1]; // Remove data URL prefix
+                                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                            const filename = `recorded_${timestamp}.webm`;
+
+                                            // Streamlit 세션 상태 업데이트
+                                            window.parent.postMessage({
+                                                type: 'streamlit:setComponentValue',
+                                                value: JSON.stringify({
+                                                    audio: base64Audio,
+                                                    filename: filename,
+                                                }),
+                                            }, '*');
+
+                                            // 추가: 다운로드 링크 제공
+                                            const downloadLink = document.createElement('a');
+                                            downloadLink.href = audioURL;
+                                            downloadLink.download = filename;
+                                            downloadLink.textContent = '오디오 파일 다운로드';
+                                            document.body.appendChild(downloadLink);
+                                        };
+
+                                    } catch (error) {
+                                        console.error('Error:', error);
+                                        errorDiv.textContent = `오류 발생: ${error.message}`;
+                                        statusDiv.textContent = '오류가 발생했습니다. 다시 시도해 주세요.';
+                                    }
+                                };
+
+                                mediaRecorder.start();
+                                isRecording = true;
+                                recordButton.textContent = '녹음 중지';
+                                recordButton.style.backgroundColor = '#f44336';
+                                statusDiv.textContent = '녹음 중...';
+                                errorDiv.textContent = '';
+                                
+                                let startTime = Date.now();
+                                audioLogInterval = setInterval(() => {
+                                    const duration = Math.floor((Date.now() - startTime) / 1000);
+                                    audioLog.textContent = `녹음 시간: ${duration}초`;
+                                }, 1000);
+                                
+                            } else {
+                                mediaRecorder.stop();
+                                isRecording = false;
+                                recordButton.textContent = '녹음 시작';
+                                recordButton.style.backgroundColor = '#4CAF50';
+                            }
+                        } catch (error) {
+                            console.error('Error:', error);
+                            errorDiv.textContent = `오류 발생: ${error.message}`;
+                            statusDiv.textContent = '오류가 발생했습니다.';
+                        }
+                    }
+                </script>
+            """
+
+            component_value = st.components.v1.html(
+                recording_html,
+                height=200
+            )
             
-            # Check for recorded audio data
-            if st.session_state.get("audio_data"):
-                transcribed_text = st.session_state.stt_manager.stop_recording(engine=stt_engine.lower())
-                if transcribed_text:
-                    if not st.session_state.consultation_text:
-                        st.session_state.consultation_text = transcribed_text
-                    else:
-                        st.session_state.consultation_text += " " + transcribed_text
-                    st.rerun()
+            # 컴포넌트 값이 있고 문자열인 경우에만 처리
+            if component_value and isinstance(component_value, str):
+                try:
+                    # JSON 파싱
+                    data = json.loads(component_value)
+                    audio_base64 = data.get('audio')
+                    filename = data.get('filename')
+                    
+                    if audio_base64 and filename:
+                        # base64 디코딩
+                        audio_data = base64.b64decode(audio_base64)
+                        
+                        # 파일 저장
+                        filepath = os.path.join("recorded_audio", filename)
+                        with open(filepath, "wb") as f:
+                            f.write(audio_data)
+                        
+                        st.success(f"녹음 파일이 저장되었습니다: {filename}")
+                        
+                        # 오디오 처리
+                        result = st.session_state.generator.stt_manager.process_webm_to_text(filepath)
+                        
+                        if result:
+                            st.success("음성 인식이 완료되었습니다!")
+                            st.write("인식된 텍스트:")
+                            st.write(result)
+                            st.session_state.transcribed_text = result
+                        else:
+                            st.error(f"오류가 발생했습니다: 오디오 처리 실패")
             
+                except json.JSONDecodeError:
+                    # JSON 파싱 오류 무시 (컴포넌트가 초기화될 때 발생할 수 있음)
+                    pass
+                except Exception as e:
+                    st.error(f"오디오 처리 중 오류가 발생했습니다: {str(e)}")
+        
+            # 업로드된 파일 처리
+            uploaded_file = st.file_uploader("또는 오디오 파일을 업로드하세요", type=['webm', 'wav', 'mp3'])
+            
+            if uploaded_file is not None:
+                st.audio(uploaded_file, format='audio/webm')
+                
+                if st.button("음성 인식 시작"):
+                    try:
+                        # 파일 데이터 읽기
+                        audio_data = uploaded_file.read()
+                        
+                        # 오디오 처리
+                        result = st.session_state.generator.stt_manager.process_webm_to_text(uploaded_file.name)
+                        
+                        if result:
+                            st.success("음성 인식이 완료되었습니다!")
+                            st.write("인식된 텍스트:")
+                            st.write(result)
+                            st.session_state.transcribed_text = result
+                        else:
+                            st.error(f"오류가 발생했습니다: 오디오 처리 실패")
+                
+                    except Exception as e:
+                        st.error(f"오디오 처리 중 오류가 발생했습니다: {str(e)}")
+
             # 소장 생성 버튼
             if st.button("소장 생성", type="primary"):
                 if consultation_text:
