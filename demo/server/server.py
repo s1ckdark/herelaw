@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import openai
 import os
 from dotenv import load_dotenv
+from flask_cors import CORS
 from langchain_community.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
@@ -21,12 +22,22 @@ from moviepy import AudioFileClip
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from bson import ObjectId
+import speech_recognition as sr
+import os
+from werkzeug.utils import secure_filename
+import subprocess
+from io import BytesIO
+from flask import send_file
+from bson.errors import InvalidId
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000"]}})
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # 실제 배포 시에는 반드시 환경 변수로 설정해야 합니다
+app.config['UPLOAD_FOLDER'] = './uploads'
 
 class MongoDBManager:
     def __init__(self, uri):
@@ -97,7 +108,7 @@ class MongoDBManager:
             "user_id": user_id,
             "consultation_text": consultation_text,
             "generated_content": generated_content,
-            "timestamp": datetime.utcnow(),
+            "created_at": datetime.utcnow(),
             "rating": None,
             "feedback": None
         })
@@ -108,7 +119,7 @@ class MongoDBManager:
         return list(self.sessions.find(
             {"user_id": user_id},
             {"_id": 0}
-        ).sort("timestamp", -1))
+        ).sort("created_at", -1))
     
     def update_session(self, session_id: str, rating: Optional[int] = None, 
                       feedback: Optional[str] = None) -> bool:
@@ -135,13 +146,13 @@ class MongoDBManager:
                 "doc_type": doc_type,
                 "chunk_hash": chunk_hash,
                 "embedding": embedding,
-                "timestamp": datetime.now()
+                "created_at": datetime.now()
             })
     
     def save_conversation(self, session_id: str, user_input: str, generated_content: Dict):
         conversation = {
             "session_id": session_id,
-            "timestamp": datetime.now(),
+            "created_at": datetime.now(),
             "user_input": user_input,
             "generated_content": generated_content
         }
@@ -616,6 +627,61 @@ def update_session(session_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/sessions/<session_id>', methods=['GET'])
+@jwt_required()
+def get_session_details(session_id):
+    """특정 세션의 상세 정보를 반환합니다."""
+    try:
+        # 세션 ID 유효성 검사
+        if not session_id or session_id == 'undefined':
+            return jsonify({"error": "유효하지 않은 세션 ID입니다."}), 400
+        
+        # 세션 조회 쿼리 준비
+        query = {
+            'user_id': request.user_id
+        }
+        
+        # ObjectId 형식인지 확인
+        try:
+            # ObjectId로 변환 시도
+            object_id = ObjectId(session_id)
+            query['_id'] = object_id
+        except (InvalidId, TypeError):
+            # ObjectId가 아니면 session_id로 검색
+            query['session_id'] = session_id
+        
+        # 세션 조회
+        session = mongodb_manager.sessions.find_one(query)
+        
+        if not session:
+            return jsonify({"error": "세션을 찾을 수 없습니다."}), 404
+        
+        # 날짜 처리 함수
+        def parse_date(date_obj):
+            if isinstance(date_obj, dict) and '$date' in date_obj:
+                return date_obj['$date']
+            elif isinstance(date_obj, datetime):
+                return date_obj
+            else:
+                return datetime.now()
+        
+        # 세션 데이터 준비 (MongoDB ObjectId를 문자열로 변환)
+        session_data = {
+            '_id': str(session['_id']),
+            'session_id': session.get('session_id', str(session['_id'])),
+            'created_at': parse_date(session.get('created_at', datetime.now())),
+            'summary': session.get('summary', ''),
+            'consultation_text': session.get('consultation_text', []),
+            'complaint': session.get('generated_content', ''),
+            'rating': session.get('rating')
+        }
+        
+        return jsonify(session_data), 200
+    
+    except Exception as e:
+        print(f"세션 상세 정보 조회 중 오류: {str(e)}")
+        return jsonify({"error": f"세션 정보를 불러오는 중 오류가 발생했습니다: {str(e)}"}), 500
+
 @app.route('/api/generate-complaint', methods=['POST'])
 @jwt_required()
 def generate_complaint():
@@ -634,7 +700,6 @@ def generate_complaint():
         # 현재 사용자 정보 가져오기
         current_user = request.user_id
         
-        # OpenAI API를 사용하여 응답 생성
         try:
             # 대화 기록을 포함한 프롬프트 생성
             messages = []
@@ -704,34 +769,38 @@ def generate_complaint():
             
             generated_complaint = complaint_response.choices[0].message.content
             
-            # 새로 추가: 대화 내용 저장
-            session_id = mongodb_manager.save_session(
-                request.user_id,
-                user_input,
-                {
-                    "response": assistant_response,
-                    "complaint": generated_complaint
-                }
-            )
-
-            # 새로 추가: 청크 저장을 위한 임베딩 생성
-            embeddings = OpenAIEmbeddings()
-            text_splitter = CharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
-            )
-            
-            # 소장 내용을 청크로 분할
-            chunks = text_splitter.split_text(generated_complaint)
-            
-            # 각 청크를 저장
-            for chunk in chunks:
-                embedding = embeddings.embed_query(chunk)
-                mongodb_manager.save_chunk(
-                    content=chunk,
-                    doc_type="divorce_complaint",
-                    embedding=embedding
+            try:
+                # 새로 추가: 대화 내용 저장
+                session_id = mongodb_manager.save_session(
+                    request.user_id,
+                    user_input,
+                    {
+                        "response": assistant_response,
+                        "complaint": generated_complaint
+                    }
                 )
+
+                # 새로 추가: 청크 저장을 위한 임베딩 생성
+                embeddings = OpenAIEmbeddings()
+                text_splitter = CharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=200
+                )
+                
+                # 소장 내용을 청크로 분할
+                chunks = text_splitter.split_text(generated_complaint)
+                
+                # 각 청크를 저장
+                for chunk in chunks:
+                    embedding = embeddings.embed_query(chunk)
+                    mongodb_manager.save_chunk(
+                        content=chunk,
+                        doc_type="divorce_complaint",
+                        embedding=embedding
+                    )
+            except Exception as db_error:
+                print(f"데이터베이스 저장 오류: {str(db_error)}")
+                # 데이터베이스 오류가 발생해도 사용자에게는 생성된 응답을 반환
             
             return jsonify({
                 "response": assistant_response,
@@ -739,7 +808,7 @@ def generate_complaint():
                 "session_id": session_id
             }), 200
             
-        except Exception as e:
+        except openai.error.OpenAIError as e:
             print(f"OpenAI API 오류: {str(e)}")
             return jsonify({"error": f"응답 생성 중 오류가 발생했습니다: {str(e)}"}), 500
             
@@ -775,7 +844,7 @@ def save_feedback():
             "complaint": complaint,
             "rating": rating,
             "feedback": feedback_text,
-            "timestamp": datetime.utcnow()
+            "created_at": datetime.utcnow()
         }
 
         # MongoDB에 피드백 저장
@@ -813,23 +882,446 @@ def get_feedback_statistics():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/summarize-text', methods=['POST'])
+@jwt_required()
+def summarize_text():
+    data = request.get_json()
+    text = data.get('text', '')
+    model = data.get('model', 'gpt-4-turbo')
+    
+    try:
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "당신은 전문적이고 간결한 텍스트 요약을 제공하는 AI 어시스턴트입니다. 핵심 포인트를 명확하고 간결하게 요약해주세요."},
+                {"role": "user", "content": f"다음 텍스트를 간결하고 명확하게 요약해주세요:\n\n{text}"}
+            ],
+            max_tokens=300
+        )
+        
+        summary = response.choices[0].message.content.strip()
+        
+        return jsonify({
+            'summary': summary,
+            'status': 'success'
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'status': 'error'
+        }), 500
+
+@app.route('/api/summarize_consultation', methods=['POST'])
+@jwt_required()
+def summarize_consultation():
+    """
+    상담 내역을 요약하고 중요한 법적 고려사항을 추출합니다.
+    
+    요청 본문 예시:
+    {
+        "text": "상담 내용 전체 텍스트",
+        "model": "gpt-4o"  # 선택적
+    }
+    
+    반환 예시:
+    {
+        "summary": "상담 내용 요약",
+        "key_points": ["법적 고려사항 1", "법적 고려사항 2"]
+    }
+    """
+    try:
+        # 요청 데이터 검증
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({"error": "텍스트가 제공되지 않았습니다."}), 400
+        
+        consultation_text = data['text']
+        model = data.get('model', 'gpt-4o')
+        
+        # OpenAI 클라이언트 초기화
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # 상담 내역 요약을 위한 프롬프트
+        system_prompt = """
+        당신은 전문 법률 상담 요약 전문가입니다. 다음 지침에 따라 상담 내용을 분석하고 요약하세요:
+
+        1. 상담 내용의 핵심 쟁점을 명확하게 식별하세요.
+        2. 법적 관점에서 중요한 세부사항을 강조하세요.
+        3. 잠재적인 법적 해결책이나 고려사항을 제시하세요.
+        4. 전문적이고 간결한 언어를 사용하세요.
+        5. 요약은 3-4문단을 넘지 않도록 하세요.
+
+        출력 형식:
+        - 상담 내용 전체 요약
+        - 주요 법적 고려사항 목록
+        """
+        
+        # OpenAI API 호출
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": consultation_text}
+            ],
+            max_tokens=300,
+            temperature=0.7
+        )
+        
+        # 요약 추출
+        summary = response.choices[0].message.content.strip()
+        
+        # 세션에 요약 정보 저장
+        session_id = str(uuid.uuid4())  # 새 세션 ID 생성
+        mongodb_manager.save_session(
+            user_id=request.user_id, 
+            consultation_text=consultation_text, 
+            generated_content={"summary": summary}
+        )
+        
+        return jsonify({
+            "summary": summary,
+            "session_id": session_id
+        }), 200
+    
+    except openai.OpenAIError as e:
+        # OpenAI API 관련 오류 처리
+        print(f"OpenAI API 오류: {str(e)}")
+        return jsonify({
+            "error": f"AI 요약 생성 중 오류 발생: {str(e)}",
+            "details": str(e)
+        }), 500
+    
+    except Exception as e:
+        # 기타 예외 처리
+        print(f"상담 요약 중 예외 발생: {str(e)}")
+        return jsonify({
+            "error": "상담 요약 중 예기치 않은 오류가 발생했습니다.",
+            "details": str(e)
+        }), 500
+
 @app.route('/api/upload-audio', methods=['POST'])
 @jwt_required()
 def upload_audio():
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file uploaded"}), 400
+    
+    audio_file = request.files['audio']
+    
+    # 안전한 파일명 생성
+    input_filename = secure_filename(audio_file.filename)
+    input_filepath = os.path.join(app.config['UPLOAD_FOLDER'], input_filename)
+    audio_file.save(input_filepath)
+    
     try:
-        if 'audioFile' not in request.files:
-            return jsonify({"error": "No audio file provided"}), 400
-            
-        audio_file = request.files['audioFile']
+        # 오디오 파일을 WAV 16kHz mono로 변환
+        converted_filepath = convert_audio_to_wav(input_filepath)
         
-        # Process the audio file and convert to text
-        # Implement your audio-to-text conversion logic here
-        # This is a placeholder
-        text = "Transcribed text would go here"
+        if not converted_filepath:
+            # 변환 실패 시 원본 파일 삭제
+            os.remove(input_filepath)
+            return jsonify({"error": "오디오 파일 변환에 실패했습니다."}), 400
         
-        return jsonify({"text": text})
+        # 변환된 파일로 음성 인식 수행
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(converted_filepath) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language='ko-KR')
+        
+        # 임시 파일들 삭제
+        os.remove(input_filepath)
+        os.remove(converted_filepath)
+        
+        return jsonify({"text": text}), 200
+    
+    except sr.UnknownValueError:
+        # 음성 인식 불가능한 경우
+        # 임시 파일들 삭제
+        if os.path.exists(input_filepath):
+            os.remove(input_filepath)
+        if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
+            os.remove(converted_filepath)
+        
+        return jsonify({"error": "음성을 인식할 수 없습니다."}), 400
+    
+    except sr.RequestError:
+        # 음성 인식 서비스 오류
+        # 임시 파일들 삭제
+        if os.path.exists(input_filepath):
+            os.remove(input_filepath)
+        if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
+            os.remove(converted_filepath)
+        
+        return jsonify({"error": "음성 인식 서비스에 문제가 있습니다."}), 500
+    
+    except Exception as e:
+        # 기타 예외 처리
+        # 임시 파일들 삭제
+        if os.path.exists(input_filepath):
+            os.remove(input_filepath)
+        if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
+            os.remove(converted_filepath)
+        
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/rate-session', methods=['POST'])
+@jwt_required()
+def rate_session():
+    """세션에 대한 평가를 처리합니다."""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        rating = data.get('rating')
+        feedback = data.get('feedback', '')
+        
+        # 필수 필드 검증
+        if not all([session_id, rating]):
+            return jsonify({"error": "세션 ID와 평점은 필수입니다."}), 400
+        
+        # 세션 존재 여부 확인
+        session = mongodb_manager.sessions.find_one({
+            'session_id': session_id,
+            'user_id': request.user_id
+        })
+        
+        if not session:
+            return jsonify({"error": "해당 세션을 찾을 수 없습니다."}), 404
+        
+        # 이미 평가했는지 확인
+        existing_rating = mongodb_manager.feedback.find_one({
+            'session_id': session_id,
+            'user_id': request.user_id
+        })
+        
+        if existing_rating:
+            return jsonify({"error": "이미 이 세션에 대해 평가하셨습니다."}), 400
+        
+        # 피드백 저장
+        feedback_doc = {
+            'session_id': session_id,
+            'user_id': request.user_id,
+            'rating': rating,
+            'feedback': feedback,
+            'created_at': datetime.now()
+        }
+        
+        # 세션에 평가 정보 업데이트
+        mongodb_manager.sessions.update_one(
+            {'session_id': session_id},
+            {'$set': {
+                'rating': rating,
+                'has_feedback': True
+            }}
+        )
+        
+        # 피드백 저장
+        mongodb_manager.feedback.insert_one(feedback_doc)
+        
+        return jsonify({
+            "message": "평가가 성공적으로 제출되었습니다.",
+            "rating": rating
+        }), 200
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/generate-document', methods=['POST'])
+@jwt_required()
+def generate_document():
+    data = request.get_json()
+    transcription = data.get('transcription', '')
+    summary = data.get('summary', '')
+    
+    try:
+        # Create a new Document
+        doc = Document()
+        
+        # Title
+        title = doc.add_heading('음성 녹음 기반 소장', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Transcription Section
+        doc.add_heading('원본 녹음 내용', level=1)
+        transcription_para = doc.add_paragraph(transcription)
+        transcription_para.style.font.size = Pt(11)
+        
+        # Summary Section
+        doc.add_heading('대화 요약', level=1)
+        summary_para = doc.add_paragraph(summary)
+        summary_para.style.font.size = Pt(11)
+        
+        # Save document to a BytesIO object
+        doc_bytes = BytesIO()
+        doc.save(doc_bytes)
+        doc_bytes.seek(0)
+        
+        return send_file(
+            doc_bytes, 
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            as_attachment=True,
+            download_name='소장.docx'
+        )
+    
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'status': 'error'
+        }), 500
+
+@app.route('/api/update_complaint', methods=['POST'])
+@jwt_required()
+def update_complaint():
+    """
+    사용자의 소장을 업데이트합니다.
+    
+    요청 본문 예시:
+    {
+        "complaint": "수정된 소장 내용",
+        "session_id": "세션 ID (선택적)"
+    }
+    
+    반환 예시:
+    {
+        "message": "소장이 성공적으로 업데이트되었습니다.",
+        "updated_complaint": "수정된 소장 내용"
+    }
+    """
+    try:
+        # 요청 데이터 검증
+        data = request.get_json()
+        if not data or 'complaint' not in data:
+            return jsonify({"error": "소장 내용이 제공되지 않았습니다."}), 400
+        
+        updated_complaint = data['complaint']
+        session_id = data.get('session_id')
+        
+        # 세션 ID가 제공된 경우 해당 세션 업데이트
+        if session_id:
+            update_result = mongodb_manager.sessions.update_one(
+                {"session_id": session_id, "user_id": request.user_id},
+                {"$set": {"generated_content.complaint": updated_complaint}}
+            )
+            
+            if update_result.modified_count == 0:
+                # 세션을 찾지 못하거나 업데이트 실패
+                return jsonify({
+                    "error": "해당 세션을 찾을 수 없거나 업데이트 권한이 없습니다.",
+                    "details": f"Session ID: {session_id}, User ID: {request.user_id}"
+                }), 403
+        
+        # 추가적인 로깅 또는 처리
+        print(f"소장 업데이트 - 사용자 ID: {request.user_id}, 세션 ID: {session_id}")
+        
+        return jsonify({
+            "message": "소장이 성공적으로 업데이트되었습니다.",
+            "updated_complaint": updated_complaint
+        }), 200
+    
+    except Exception as e:
+        # 예외 처리
+        print(f"소장 업데이트 중 오류 발생: {str(e)}")
+        return jsonify({
+            "error": "소장 업데이트 중 예기치 않은 오류가 발생했습니다.",
+            "details": str(e)
+        }), 500
+
+@app.route('/api/start-consultation', methods=['POST'])
+@jwt_required()
+def start_consultation():
+    """
+    새 상담 세션을 시작하고 초기 대화 내용을 저장합니다.
+    
+    요청 본문 예시:
+    {
+        "consultation_text": "상담 내용",
+        "conversation": "상담 내용 (대화 기록용)"
+    }
+    
+    반환 예시:
+    {
+        "session_id": "새로 생성된 세션 ID",
+        "consultation_text": "상담 내용",
+        "created_at": "세션 생성 시간"
+    }
+    """
+    try:
+        # 요청 데이터 파싱
+        data = request.get_json()
+        consultation_text = data.get('consultation_text')
+        conversation = data.get('conversation', consultation_text)
+        
+        # 입력 검증
+        if not consultation_text:
+            return jsonify({"error": "상담 내용이 필요합니다."}), 400
+        
+        # 세션 생성
+        session_id = str(uuid.uuid4())
+        
+        # 세션 저장
+        session_data = {
+            "_id": session_id,
+            "user_id": request.user_id,
+            "consultation_text": consultation_text,
+            "conversation": conversation,
+            "created_at": datetime.utcnow(),
+            "status": "in_progress"
+        }
+        
+        # MongoDB에 세션 저장
+        mongodb_manager.sessions.insert_one(session_data)
+        
+        # 응답 생성
+        return jsonify({
+            "session_id": session_id,
+            "consultation_text": consultation_text,
+            "created_at": session_data['created_at'].isoformat()
+        }), 201
+    
+    except Exception as e:
+        print(f"상담 시작 중 오류 발생: {str(e)}")
+        return jsonify({"error": "상담 시작 중 오류가 발생했습니다.", "details": str(e)}), 500
+
+def convert_audio_to_wav(input_file):
+    """
+    Convert input audio file to WAV 16kHz mono using FFmpeg
+    
+    Args:
+        input_file (str): Path to the input audio file
+    
+    Returns:
+        str: Path to the converted WAV file, or None if conversion fails
+    """
+    try:
+        # Generate a unique filename for the converted file
+        output_filename = f"{uuid.uuid4()}.wav"
+        output_file = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+        
+        # FFmpeg command to convert audio to WAV 16kHz mono
+        ffmpeg_command = [
+            'ffmpeg', 
+            '-i', input_file,  # Input file
+            '-acodec', 'pcm_s16le',  # 16-bit PCM
+            '-ar', '16000',  # Sample rate 16kHz
+            '-ac', '1',  # Mono audio
+            output_file
+        ]
+        
+        # Run FFmpeg conversion
+        result = subprocess.run(ffmpeg_command, capture_output=True, text=True)
+        
+        # Check if conversion was successful
+        if result.returncode == 0 and os.path.exists(output_file):
+            return output_file
+        else:
+            # Log FFmpeg error output
+            print(f"FFmpeg conversion error: {result.stderr}")
+            return None
+    
+    except Exception as e:
+        print(f"Audio conversion error: {e}")
+        return None
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
