@@ -752,17 +752,114 @@ def main():
     st.set_page_config(
         page_title="이혼 소장 생성기",
         page_icon="⚖️",
-        layout="wide"
+        layout="centered"
     )
     
+    # CSS 스타일 추가
+    st.markdown("""
+        <style>
+        div.block-container {
+            width: 100%;
+            max-width: 100vw;
+            padding: 2em;
+            border-radius: 10px;
+        }
+        #welcome-to-herelaw {
+            text-align: center;
+        }
+        #welcome-to-herelaw svg {
+            display: none;
+        }
+        div.
+        div.stButton > button {
+            width: 100%;
+            height: 3em;
+            margin: 0;
+        }
+        div.stForm > form {
+            padding: 2em;
+            border-radius: 10px;
+            background-color: #f8f9fa;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     initialize_session_state()
+    
+    user_manager = UserManager()
+    session_manager = SessionManager()
+    
+    if not user_manager.is_logged_in():
+        st.title("Welcome to HereLaw")
+        
+        # 폼 상태 초기화
+        if 'show_signup' not in st.session_state:
+            st.session_state.show_signup = False
+        
+        # 회원가입 폼
+        if st.session_state.show_signup:
+            with st.form("signup_form"):
+                st.markdown("<h3 style='text-align: center;'>Sign Up</h3>", unsafe_allow_html=True)
+                new_username = st.text_input("Username")
+                new_password = st.text_input("Password", type="password")
+                confirm_password = st.text_input("Confirm Password", type="password")
+                
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    create_account_button = st.form_submit_button("Create Account", use_container_width=True)
+                with col2:
+                    back_to_login = st.form_submit_button("Back to Login", use_container_width=True)
+                
+                if create_account_button:
+                    if new_password != confirm_password:
+                        st.error("Passwords do not match")
+                    elif not new_username or not new_password:
+                        st.error("Please fill in all fields")
+                    else:
+                        if user_manager.register(new_username, new_password):
+                            st.success("Account created successfully! Please log in.")
+                            st.session_state.show_signup = False
+                            st.experimental_rerun()
+                        else:
+                            st.error("Failed to create account. Username might already exist.")
+                
+                if back_to_login:
+                    st.session_state.show_signup = False
+                    st.experimental_rerun()
+        
+        # 로그인 폼
+        else:
+            with st.form("login_form"):
+                st.markdown("<h3 style='text-align: center;'>Login</h3>", unsafe_allow_html=True)
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                
+                # 버튼들을 나란히 배치하기 위한 컬럼
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    submit_button = st.form_submit_button("Login", use_container_width=True)
+                with col2:
+                    signup_button = st.form_submit_button("Sign Up", use_container_width=True)
+                
+                if submit_button:
+                    if user_manager.login(username, password):
+                        st.success("Successfully logged in!")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Invalid username or password")
+                
+                if signup_button:
+                    st.session_state.show_signup = True
+                    st.experimental_rerun()
+        
+        return
     
     # 2분할 레이아웃
     left_col, right_col = st.columns([2, 8])
     
     # 왼쪽 사이드바 - 세션 목록
     with left_col:
-        if st.session_state.user_manager.is_logged_in():
+        if user_manager.is_logged_in():
             st.subheader("세션 관리")
             display_sessions()
     
@@ -771,7 +868,7 @@ def main():
         st.title("이혼 소장 생성기")
         
         # 로그인/회원가입 섹션
-        if not st.session_state.user_manager.is_logged_in():
+        if not user_manager.is_logged_in():
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("로그인")
@@ -779,7 +876,7 @@ def main():
                 password = st.text_input("비밀번호", type="password", key="login_password")
                 if st.button("로그인"):
                     try:
-                        if st.session_state.user_manager.login(username, password):
+                        if user_manager.login(username, password):
                             st.success("로그인 성공!")
                             st.rerun()
                         else:
@@ -793,7 +890,7 @@ def main():
                 new_password = st.text_input("새 비밀번호", type="password", key="register_password")
                 if st.button("회원가입"):
                     try:
-                        if st.session_state.user_manager.register(new_username, new_password):
+                        if user_manager.register(new_username, new_password):
                             st.success("회원가입 성공! 이제 로그인할 수 있습니다.")
                         else:
                             st.error("회원가입 실패. 다른 사용자명을 시도해주세요.")
@@ -801,10 +898,10 @@ def main():
                         st.error(f"회원가입 중 오류 발생: {str(e)}")
         
         else:
-            st.write(f"환영합니다, {st.session_state.user_manager.get_current_user().get('username', '')}님!")
+            st.write(f"환영합니다, {user_manager.get_current_user().get('username', '')}님!")
             
             if st.button("로그아웃", type="secondary"):
-                st.session_state.user_manager.logout()
+                user_manager.logout()
                 st.rerun()
             
             # 대화 인터페이스
@@ -859,7 +956,7 @@ def main():
                         # API 호출하여 응답 받기
                         response = requests.post(
                             f"{API_BASE_URL}/generate-complaint",
-                            headers=st.session_state.user_manager._get_auth_headers(),
+                            headers=user_manager._get_auth_headers(),
                             json={
                                 "user_input": user_input,
                                 "conversation_history": st.session_state.conversation_history
@@ -882,7 +979,7 @@ def main():
                                 st.session_state.generated_complaint = generated_complaint
                             
                             # 세션 업데이트
-                            st.session_state.session_manager.save_session(
+                            session_manager.save_session(
                                 st.session_state.consultation_text,
                                 st.session_state.generated_complaint
                             )
@@ -890,7 +987,7 @@ def main():
                             st.rerun()
                         elif response.status_code == 401:
                             st.error("인증이 만료되었습니다. 다시 로그인해주세요.")
-                            st.session_state.user_manager.logout()
+                            user_manager.logout()
                             st.rerun()
                         else:
                             st.error(f"서버 응답 오류가 발생했습니다. (상태 코드: {response.status_code})")

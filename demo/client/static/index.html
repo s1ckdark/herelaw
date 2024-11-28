@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HERELAW</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">HERELAW</h1>
+        
+        <!-- 로그인 폼 -->
+        <div class="form-container" id="loginForm">
+            <h2>로그인</h2>
+            <form id="login">
+                <div class="form-group">
+                    <input type="text" id="loginUsername" placeholder="아이디" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="loginPassword" placeholder="비밀번호" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn">로그인</button>
+                    <button type="button" class="btn" onclick="toggleForm('signup')">회원가입</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- 회원가입 폼 -->
+        <div class="form-container hidden" id="signupForm">
+            <h2>회원가입</h2>
+            <form id="signup">
+                <div class="form-group">
+                    <input type="text" id="signupUsername" placeholder="아이디" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="signupPassword" placeholder="비밀번호" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="confirmPassword" placeholder="비밀번호 확인" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn">계정 만들기</button>
+                    <button type="button" class="btn" onclick="toggleForm('login')">로그인으로 돌아가기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script src="js/script.js"></script>
+</body>
+</html>
