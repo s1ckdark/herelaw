@@ -50,8 +50,7 @@
 
                     <!-- 텍스트 입력 -->
                     <div id="textInput" class="tab-content active">
-                        <textarea id="consultationText" placeholder="상담 내용을 입력하세요..."></textarea>
-                        <button class="btn submit-btn" onclick="startConsultation()">상담 시작</button>
+                
                     </div>
 
                     <!-- 음성 입력 -->
@@ -77,20 +76,10 @@
                                     <button id="downloadRecordingBtn" class="btn download-btn">다운로드</button>
                                     <button id="generateTextBtn" class="btn generate-btn">텍스트 변환</button>
                                 </div>
-                                <div class="converted-text-section">
-                                    <h4>변환된 텍스트</h4>
+                                <!-- <div class="converted-text-section">
+                                    <h4>상담 내용</h4>
                                     <textarea id="convertedTextDisplay" class="converted-text-content"></textarea>
-                                </div>
-                                
-                                <div class="summary-section">
-                                    <h4>대화 요약</h4>
-                                    <textarea id="conversationSummary" class="summary-textarea" readonly></textarea>
-                                    <button id="generateDocumentBtn" class="btn generate-document-btn">
-                                        <i class="fas fa-file-alt"></i> 소장 생성
-                                    </button>
-                                </div>
-                                
-      
+                                </div> -->
                             </div>
                         </div>
                     </div>
@@ -102,28 +91,33 @@
                             <label for="audioFileUpload" class="file-upload-btn">음성 파일 선택</label>
                             <div id="uploadedFileInfo" class="file-info"></div>
                             <button id="processAudioBtn" class="btn submit-btn hidden">음성 텍스트 변환</button>
-                            <div id="transcribedText" class="transcribed-text"></div>
                         </div>
                     </div>
                 </section>
-
-                <!-- 대화 기록 -->
+                
+                <section class="consultation-section">
+                    <h2>상담 내용</h2>
+                    <textarea id="consultationText" placeholder="상담 내용을 입력하세요..."></textarea>
+                    <button class="btn submit-btn" onclick="summarizeConsultation()">상담 시작</button>
+                </section>
+                <section class="summary-section">
+                    <h2>대화 요약</h2>
+                    <textarea id="conversationSummary" class="summary-textarea" readonly></textarea>
+                    <button onclick="startConsultation()" class="btn generate-document-btn">
+                        <i class="fas fa-file-alt"></i> 소장 생성
+                    </button>
+                </section>
+                <!-- 대화 기록
                 <section class="conversation-section">
                     <h2>대화 기록</h2>
                     <div id="conversationHistory" class="conversation-history"></div>
-                </section>
+                </section> -->
 
                 <!-- 생성된 소장 -->
                 <section class="complaint-section" id="complaintSection" style="display: none;">
                     <h2>생성된 소장</h2>
                     <div class="complaint-container-wrapper">
-                        <textarea class="complaint-container" id="complaintContent"></textarea>
-                        <textarea 
-                            id="complaintEditTextarea" 
-                            class="complaint-edit-textarea" 
-                            style="display: none;"
-                            rows="10"
-                        ></textarea>
+                        <textarea class="complaint-container" id="complaintContent" readonly></textarea>
                     </div>
                     <div class="complaint-actions">
                         <button 

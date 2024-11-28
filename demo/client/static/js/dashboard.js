@@ -1,5 +1,5 @@
 // API 엔드포인트
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 
 // 현재 세션 ID를 추적하는 전역 변수
 let currentSessionId = null;
@@ -21,32 +21,26 @@ function formatTime(seconds) {
 
 // 소장 수정 모드 토글 함수
 function toggleComplaintEdit() {
-    const complaintContainer = document.getElementById('complaintContent');
-    const complaintTextarea = document.getElementById('complaintEditTextarea');
+    const complaintContent = document.getElementById('complaintContent');
     const editComplaintBtn = document.getElementById('editComplaintBtn');
     const saveComplaintBtn = document.getElementById('saveComplaintBtn');
 
-    // 소장 수정 모드 토글
-    if (!complaintTextarea.hasAttribute('data-edit-mode')) {
-        // 수정 모드 활성화
-        complaintTextarea.value = complaintContainer.innerText.trim();
-        complaintTextarea.style.display = 'block';
-        complaintContainer.style.display = 'none';
-        
+ // 소장 수정 모드 토글
+    if (complaintContent.hasAttribute('readonly')) {
+        // 수정 모드 활성화   
+        console.log('수정 모드 활성화');
         editComplaintBtn.textContent = '취소';
         saveComplaintBtn.style.display = 'inline-block';
         
-        complaintTextarea.setAttribute('data-edit-mode', 'true');
-        complaintTextarea.focus();
+        complaintContent.removeAttribute('readonly');
+        complaintContent.focus();
     } else {
         // 수정 모드 비활성화 (취소)
-        complaintTextarea.style.display = 'none';
-        complaintContainer.style.display = 'block';
-        
+        console.log('수정 모드 비활성화');
         editComplaintBtn.textContent = '수정';
         saveComplaintBtn.style.display = 'none';
         
-        complaintTextarea.removeAttribute('data-edit-mode');
+        complaintContent.setAttribute('readonly', 'true');
     }
 }
 
@@ -210,51 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 텍스트 변환 버튼 이벤트 리스너
     const generateTextBtn = document.getElementById('generateTextBtn');
-    if (generateTextBtn) {
-        generateTextBtn.addEventListener('click', async () => {
-            if (!audioBlob) {
-                alert('먼저 음성을 녹음해주세요.');
-                return;
-            }
 
-            try {
-                // FormData 생성
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'recording.webm');
-
-                // 음성을 텍스트로 변환
-                const response = await fetch('/api/upload-audio', {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`  // JWT 토큰 추가
-                    }
-                });
-
-                // 응답 처리
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || '음성 변환 중 오류가 발생했습니다.');
-                }
-
-                const result = await response.json();
-                
-                // 텍스트 표시
-                const convertedTextDisplay = document.getElementById('convertedTextDisplay');
-                convertedTextDisplay.value = result.text || '';
-                
-                // 자동으로 상담 내역 요약 실행
-                // await summarizeConsultation();
-                
-                alert('음성이 텍스트로 성공적으로 변환되었습니다.');
-                
-            } catch (error) {
-                console.error('텍스트 변환 중 오류:', error);
-                alert(error.message || '텍스트 변환 중 오류가 발생했습니다.');
-            }
-        });
-    }
-    
     // 소장 수정 모드 토글 함수
     const editComplaintBtn = document.getElementById('editComplaintBtn');
     if (editComplaintBtn) {
@@ -410,7 +360,7 @@ async function loadSession(sessionId) {
         // 상담 내용 표시 (sessionData.conversation)
         const consultationTextElement = document.getElementById('consultationText');
         if (consultationTextElement) {
-            consultationTextElement.value = sessionData.consultatation_text || '상담 내용이 없습니다.';
+            consultationTextElement.value = sessionData.consultation_text || '상담 내용이 없습니다.';
         }
 
         // 대화 기록 표시 (complaint.response)
@@ -544,74 +494,127 @@ function startNewSession() {
 }
 
 // 상담 시작
+// 상담 시작 함수 수정
 async function startConsultation() {
-    const text = document.getElementById('consultationText').value;
-    if (!text) return;
-    
-    // 생성 중 프로그레스 바 표시
-    const complaintResult = document.getElementById('complaintResult');
-    
-    // 요소가 없으면 동적으로 생성
-    if (!complaintResult) {
-        const mainContent = document.querySelector('.main-content');
-        const newSection = document.createElement('section');
-        newSection.className = 'complaint-result-section';
-        newSection.innerHTML = `<div id="complaintResult"></div>`;
-        mainContent.appendChild(newSection);
-    }
-    
-    const resultElement = document.getElementById('complaintResult');
-    if (!resultElement) {
-        console.error('Could not find or create complaintResult element');
+    const consultationText = document.getElementById('consultationText').value.trim();
+    if (!consultationText) {
+        alert('상담 내용을 입력해주세요.');
         return;
     }
-    
-    resultElement.innerHTML = `
-        <div class="progress-container">
-            <div class="progress-bar">
-                <div class="progress-bar-fill"></div>
+
+    // 로딩 컨테이너 생성
+    const loadingContainer = document.createElement('div');
+    loadingContainer.className = 'loading-container';
+    loadingContainer.innerHTML = `
+        <div class="loading-overlay"></div>
+        <div class="loading-content">
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill"></div>
+                </div>
+                <div class="progress-text">소장 생성 중...</div>
+                <div class="progress-percentage">0%</div>
             </div>
-            <p>소장 생성 중입니다...</p>
         </div>
     `;
-    
+
+    // 로딩 컨테이너를 body에 추가
+    document.body.appendChild(loadingContainer);
+
+    const progressBarFill = loadingContainer.querySelector('.progress-bar-fill');
+    const progressText = loadingContainer.querySelector('.progress-text');
+    const progressPercentage = loadingContainer.querySelector('.progress-percentage');
+
+    // 프로그레스 바 애니메이션
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        if (progress < 90) {
+            progress += Math.random() * 15;
+            if (progress > 90) progress = 90;
+            progressBarFill.style.width = `${progress}%`;
+            progressPercentage.textContent = `${Math.round(progress)}%`;
+        }
+    }, 1000);
+
     try {
         const response = await fetch(`${API_BASE_URL}/generate-complaint`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
             },
             body: JSON.stringify({
-                user_input: text
+                user_input: consultationText,
+                model: 'gpt-4-turbo'
             })
         });
 
-        // Check if response is JSON
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            const errorText = await response.text();
-            throw new Error(`Server returned non-JSON response: ${errorText}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || errorData.error || '소장 생성 실패');
         }
 
-        const result = await response.json();
+        const data = await response.json();
         
-        if (response.ok) {
-            displayConversation(result.response);
-            if (result.complaint) {
-                displayComplaint(result.complaint);
+        // 프로그레스 바 100%로 설정
+        clearInterval(progressInterval);
+        progressBarFill.style.width = '100%';
+        progressPercentage.textContent = '100%';
+        progressText.textContent = '소장 생성 완료!';
+
+        // 소장 내용 표시
+        if (data.complaint) {
+            const complaintSection = document.getElementById('complaintSection');
+            const complaintContent = document.getElementById('complaintContent');
+            
+            if (complaintSection && complaintContent) {
+                complaintSection.style.display = 'block';
+                complaintContent.innerHTML = data.complaint
+                    .replace(/\n\n/g, '</p><p>')
+                    .replace(/\n/g, '<br>');
+                
+                complaintSection.style.display = 'block';
+                complaintContent.value = data.complaint;
+                
+                // 세션 ID 저장
+                if (data.session_id) {
+                    currentSessionId = data.session_id;
+                }
             }
-            // Store the session ID if provided
-            if (result.session_id) {
-                currentSessionId = result.session_id;
-                console.log('Current session ID:', currentSessionId);
-            }
-        } else {
-            throw new Error(result.error || 'Server returned an error');
         }
+
+        // 잠시 후 로딩 컨테이너 제거
+        setTimeout(() => {
+            loadingContainer.remove();
+        }, 1000);
+
     } catch (error) {
-        console.error('상담 중 오류:', error);
-        resultElement.innerHTML = `<p class="error-message">소장 생성 중 오류가 발생했습니다: ${error.message}</p>`;
+        console.error('소장 생성 오류:', error);
+        
+        // 에러 상태로 프로그레스 바 변경
+        clearInterval(progressInterval);
+        progressBarFill.style.backgroundColor = '#ff4444';
+        progressText.textContent = '소장 생성 실패';
+        progressPercentage.style.display = 'none';
+
+        // 에러 메시지 표시
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'error-message';
+        errorMessage.textContent = error.message.includes('module') 
+            ? '서버 설정 오류가 발생했습니다. 관리자에게 문의해주세요.'
+            : '소장 생성 중 오류가 발생했습니다.';
+        
+        loadingContainer.querySelector('.loading-content').appendChild(errorMessage);
+
+        // 재시도 버튼 추가
+        const retryButton = document.createElement('button');
+        retryButton.className = 'retry-button';
+        retryButton.textContent = '다시 시도';
+        retryButton.onclick = () => {
+            loadingContainer.remove();
+            startConsultation();
+        };
+        loadingContainer.querySelector('.loading-content').appendChild(retryButton);
     }
 }
 
@@ -628,27 +631,41 @@ function displayConversation(message) {
 
 // 소장 표시
 function displayComplaint(complaint) {
-    const complaintResult = document.getElementById('complaintResult');
-    if (!complaintResult) {
-        console.error('complaintResult element not found');
-        return;
-    }
+    // const complaintResult = document.getElementById('complaintResult');
+    // if (!complaintResult) {
+    //     console.error('complaintResult element not found');
+    //     return;
+    // }
     
     // 소장 내용을 줄바꿈과 함께 포맷팅
-    const formattedComplaint = complaint
-        .replace(/\n\n/g, '</p><p>')  // 문단 구분
-        .replace(/\n/g, '<br>');  // 줄바꿈 처리
+    function htmlToText(html) {
+        return html
+            .replace(/<\/p><p>/g, '\n\n')  // 문단 구분을 두 줄바꿈으로
+            .replace(/<br\s*\/?>/g, '\n')   // <br> 태그를 줄바꿈으로
+            .replace(/<[^>]*>/g, '')        // 나머지 HTML 태그 제거
+            .trim();
+    }
+    
+    // textarea에 소장 내용 설정
+    const complaintContent = document.getElementById('complaintContent');
+    if (complaintContent) {
+        complaintContent.value = htmlToText(complaint);
+    }
+    const complaintTextarea = document.getElementById('complaintEditTextarea');
+    if (complaintTextarea) {
+        complaintTextarea.value = htmlToText(complaint);
+    }
     
     complaintResult.innerHTML = `
         <div class="complaint-container">
             <h2>생성된 소장</h2>
-            <div class="complaint-content">
-                <p>${formattedComplaint}</p>
-            </div>
+            <textarea id="complaintContent">
+                ${htmlToText(complaint)}
+            </textarea>
             <div class="complaint-actions">
                 <button class="btn edit-btn" onclick="toggleComplaintEdit()">소장 수정하기</button>
                 <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
-                <button class="btn rate-btn" onclick="rateComplaint()">소장 평가하기</button>
+                <button class="btn rate-btn" onclick="open()">소장 평가하기</button>
             </div>
         </div>
     `;
@@ -689,7 +706,7 @@ function saveComplaint() {
     actionButtons.innerHTML = `
         <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
         <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
-        <button class="btn rate-btn" onclick="rateComplaint()">소장 평가하기</button>
+        <button class="btn rate-btn" onclick="openRatingModal(currentSessionId)">소장 평가하기</button>
     `;
 }
 
@@ -705,18 +722,18 @@ function cancelEdit() {
     complaintContent.innerHTML = `<p>${formattedText}</p>`;
     
     // 원래 액션 버튼 복원
-    const actionButtons = document.querySelector('.complaint-actions');
-    actionButtons.innerHTML = `
-        <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
-        <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
-        <button class="btn rate-btn" onclick="rateComplaint()">소장 평가하기</button>
-    `;
+    // const actionButtons = document.querySelector('.complaint-actions');
+    // actionButtons.innerHTML = `
+    //     <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
+    //     <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
+    //     <button class="btn rate-btn" onclick="open()">소장 평가하기</button>
+    // `;
 }
 
 // 소장 다운로드
 function downloadComplaint() {
-    const complaintContent = document.querySelector('.complaint-content p');
-    const text = complaintContent.innerHTML
+    const complaintContent = document.querySelector('#complaintContent').value;
+    const text = complaintContent
         .replace(/<br>/g, '\n')
         .replace(/<\/p><p>/g, '\n\n')
         .replace(/<[^>]*>/g, '');  // 모든 HTML 태그 제거
@@ -849,6 +866,7 @@ function initializeVoiceRecording() {
     const totalTimeSpan = document.getElementById('totalTime');
     const downloadRecordingBtn = document.getElementById('downloadRecordingBtn');
     const generateTextBtn = document.getElementById('generateTextBtn');
+    const consultationText = document.getElementById('consultationText');
 
     let audioPlayer = null;
 
@@ -970,7 +988,7 @@ function initializeVoiceRecording() {
 
                 if (response.ok) {
                     const result = await response.json();
-                    document.getElementById('convertedTextDisplay').value = result.text;
+                    document.getElementById('consultationText').value = result.text;
                     alert('음성이 텍스트로 성공적으로 변환되었습니다.');
                 } else {
                     const error = await response.json();
@@ -997,7 +1015,8 @@ function initializeVoiceRecording() {
 function visualizeAudio(canvas, analyser) {
     const canvasCtx = canvas.getContext('2d');
     const WIDTH = canvas.offsetWidth; // Use full width of container
-    const HEIGHT = 50; // Reduced height to 50px
+    const HEIGHT = 100; // width:height = 16:10
+    console.log(WIDTH, HEIGHT);
     canvas.height = HEIGHT; // Explicitly set canvas height
     
     analyser.fftSize = 2048;
@@ -1051,7 +1070,7 @@ function initializeVoiceUpload() {
     const audioFileUpload = document.getElementById('audioFileUpload');
     const uploadedFileInfo = document.getElementById('uploadedFileInfo');
     const processAudioBtn = document.getElementById('processAudioBtn');
-    const transcribedText = document.getElementById('transcribedText');
+    const consultationText = document.getElementById('consultationText');
 
     audioFileUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
@@ -1078,12 +1097,10 @@ function initializeVoiceUpload() {
 
                 if (response.ok) {
                     const result = await response.json();
-                    transcribedText.textContent = result.text;
-                    transcribedText.classList.remove('hidden');
+                    consultationText.textContent = result.text;
                 } else {
                     const error = await response.json();
-                    transcribedText.textContent = `오류: ${error.error}`;
-                    transcribedText.classList.remove('hidden');
+                    consultationText.textContent = `오류: ${error.error}`;
                 }
             } catch (error) {
                 console.error('음성 파일 처리 오류:', error);
@@ -1192,14 +1209,14 @@ function handleRecordingStop(audioBlob) {
 // 요약 생성
 async function summarizeTranscription(transcription) {
     try {
-        const response = await fetch('/summarize_text', {
+        const response = await fetch('/summarize-text', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
                 text: transcription,
-                model: 'gpt-4-turbo'
+                model: 'gpt-4'
             })
         });
 
@@ -1270,54 +1287,42 @@ function drawWaveform(audioBuffer) {
 }
 
 // 음성 텍스트 생성
-async function generateTextFromAudio() {
-    try {
-        // Existing text generation logic
-        const transcription = await performSpeechRecognition();
+// async function generateTextFromAudio() {
+//     try {
+//         // Existing text generation logic
+//         const transcription = await performSpeechRecognition();
         
-        // Display transcription
-        const convertedTextDisplay = document.getElementById('convertedTextDisplay');
-        convertedTextDisplay.textContent = transcription;
+//         // Display transcription
+//         const convertedTextDisplay = document.getElementById('convertedTextDisplay');
+//         convertedTextDisplay.textContent = transcription;
         
-        // Summarize transcription
-        const summary = await summarizeTranscription(transcription);
+//         // Summarize transcription
+//         const summary = await summarizeTranscription(transcription);
         
-        // Add summary to conversation history
-        await addMessageToChatHistory('system', '음성 요약', summary);
+//         // Add summary to conversation history
+//         await addMessageToChatHistory('system', '음성 요약', summary);
         
-    } catch (error) {
-        console.error('Text generation error:', error);
-        alert('텍스트 변환 중 오류가 발생했습니다.');
-    }
-}
+//     } catch (error) {
+//         console.error('Text generation error:', error);
+//         alert('텍스트 변환 중 오류가 발생했습니다.');
+//     }
+// }
 
 // 상담 내역 요약 및 정리 함수
 async function summarizeConsultation() {
-    const convertedTextDisplay = document.getElementById('convertedTextDisplay');
+    const consultationText = document.getElementById('consultationText');
     const conversationSummary = document.getElementById('conversationSummary');
-    
-    if (!convertedTextDisplay || !conversationSummary) {
-        alert('먼저 음성을 텍스트로 변환해주세요.');
-        return;
-    }
-    
-    const transcription = convertedTextDisplay.value.trim();
-    
-    if (!transcription) {
-        alert('변환된 텍스트가 없습니다.');
-        return;
-    }
-    
+        
     try {
-        const response = await fetch('/api/summarize_consultation', {
+        const response = await fetch(`${API_BASE_URL}/summarize-consultation`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('token')}`
             },
             body: JSON.stringify({
-                text: transcription,
-                model: 'gpt-4o'
+                text: consultationText.value,
+                model: 'gpt-4o-mini'
             })
         });
         
@@ -1331,10 +1336,10 @@ async function summarizeConsultation() {
         // 요약된 내용을 textarea에 표시
         conversationSummary.value = data.summary || '요약을 생성할 수 없습니다.';
         
-        // 대화 기록에 추가 (선택적)
-        if (typeof addMessageToChatHistory === 'function') {
-            await addMessageToChatHistory('system', '상담 내역 요약', data.summary);
-        }
+        // // 대화 기록에 추가 (선택적)
+        // if (typeof addMessageToChatHistory === 'function') {
+        //     await addMessageToChatHistory('system', '상담 내역 요약', data.summary);
+        // }
         
         // 세션 ID 저장 (필요한 경우)
         if (data.session_id) {

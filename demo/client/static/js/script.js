@@ -1,5 +1,5 @@
 // API 엔드포인트
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 
 // 폼 전환 함수
 function toggleForm(formType) {
@@ -31,16 +31,23 @@ document.getElementById('login').addEventListener('submit', async (e) => {
             body: JSON.stringify({ username, password }),
         });
         
-        const data = await response.json();
+        // 서버 응답이 JSON이 아닐 수 있으므로 체크
+        const contentType = response.headers.get('content-type');
+        let data;
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            throw new Error('서버에서 JSON 응답이 오지 않았습니다.');
+        }
         
         if (response.ok) {
             localStorage.setItem('token', data.token);
-            window.location.href = '/dashboard.html';  // 로그인 성공 시 대시보드로 이동
+            window.location.href = '/dashboard.html';
         } else {
-            alert('로그인 실패: ' + data.message);
+            alert(`로그인 실패: ${data.message || '알 수 없는 오류가 발생했습니다.'}`);
         }
     } catch (error) {
-        alert('로그인 중 오류가 발생했습니다.');
+        alert('로그인 중 오류가 발생했습니다: ' + error.message);
         console.error('Error:', error);
     }
 });

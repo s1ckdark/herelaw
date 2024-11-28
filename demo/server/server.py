@@ -35,7 +35,7 @@ from bson.errors import InvalidId
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000"]}})
+CORS(app, resources={r"/api/*": {"origins": ["http://172.30.1.41:3000", "http://localhost:3000"]}})
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # 실제 배포 시에는 반드시 환경 변수로 설정해야 합니다
 app.config['UPLOAD_FOLDER'] = './uploads'
 
@@ -914,7 +914,7 @@ def summarize_text():
             'status': 'error'
         }), 500
 
-@app.route('/api/summarize_consultation', methods=['POST'])
+@app.route('/api/summarize-consultation', methods=['POST'])
 @jwt_required()
 def summarize_consultation():
     """

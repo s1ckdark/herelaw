@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const app = express();
-
+const { createProxyMiddleware } = require('http-proxy-middleware');
 // CORS 설정
 app.use(cors({
     origin: '*', // 개발 환경에서는 모든 origin 허용
@@ -20,6 +20,20 @@ app.use(express.static(path.join(__dirname, 'static')));
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'static', 'index.html'));
 });
+
+
+app.use('/api', createProxyMiddleware({
+    target: 'http://localhost:8080',
+    changeOrigin: true,
+    secure: false,
+    pathRewrite: {
+        '^/api': ''
+    },
+    onProxyRes: function(proxyRes, req, res) {
+        proxyRes.headers['Access-Control-Allow-Origin'] = '*';
+    }
+}));
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
