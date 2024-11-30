@@ -4,11 +4,7 @@ const cors = require('cors');
 const app = express();
 const { createProxyMiddleware } = require('http-proxy-middleware');
 // CORS 설정
-app.use(cors({
-    origin: '*', // 개발 환경에서는 모든 origin 허용
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 
 // JSON body parsing
 app.use(express.json());
@@ -23,7 +19,7 @@ app.get('*', (req, res) => {
 
 
 app.use('/api', createProxyMiddleware({
-    target: 'http://localhost:8080',
+    target: 'http://localhost:5000',
     changeOrigin: true,
     secure: false,
     pathRewrite: {

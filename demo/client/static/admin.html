@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이혼 소장 생성기 - 관리자</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>관리자 대시보드</h1>
+        </header>
+
+        <nav class="admin-menu">
+            <a href="/admin/users">사용자 관리</a>
+            <a href="/admin/posts">게시물 관리</a>
+            <a href="/admin/comments">댓글 관리</a>
+            <a href="/admin/statistics">통계</a>
+        </nav>
+
+        <main class="admin-content">
+            <h2>시스템 개요</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <h3>전체 사용자</h3>
+                    <p id="totalUsers">0</p>
+                </div>
+                <div class="stat-box">
+                    <h3>전체 게시물</h3>
+                    <p id="totalPosts">0</p>
+                </div>
+                <div class="stat-box">
+                    <h3>전체 댓글</h3>
+                    <p id="totalComments">0</p>
+                </div>
+            </div>
+
+            <h2>최근 활동</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>날짜</th>
+                        <th>사용자</th>
+                        <th>활동</th>
+                        <th>상태</th>
+                    </tr>
+                </thead>
+                <tbody id="recentActivities">
+                    <!-- 여기에 JavaScript로 최근 활동 데이터를 추가할 수 있습니다 -->
+                </tbody>
+            </table>
+        </main>
+    </div>
+
+</body>
+</html> 

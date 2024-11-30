@@ -1,5 +1,5 @@
 // API 엔드포인트
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = 'http://localhost:5000/api';
 
 // 폼 전환 함수
 function toggleForm(formType) {

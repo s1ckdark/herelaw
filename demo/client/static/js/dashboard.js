@@ -1,5 +1,5 @@
 // API 엔드포인트
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = 'http://localhost:5000/api';
 
 // 현재 세션 ID를 추적하는 전역 변수
 let currentSessionId = null;

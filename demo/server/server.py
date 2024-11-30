@@ -50,6 +50,7 @@ class MongoDBManager:
         self.feedback = self.db['feedback']
         self.users = self.db['users']
         self.sessions = self.db['sessions']
+        self.logs = self.db['logs']  # Add logs collection
         
         print(f"MongoDB 연결 정보:")
         print(f"Database: {self.db.name}")
@@ -61,6 +62,7 @@ class MongoDBManager:
         self.users.create_index([("username", 1)], unique=True)
         self.users.create_index([("email", 1)], unique=True)
         self.sessions.create_index([("user_id", 1)])
+        self.logs.create_index([("user_id", 1)])  # Add logs index
     
     def create_user(self, username: str, password: str, email: str) -> Optional[str]:
         """새 사용자를 생성합니다."""
@@ -73,7 +75,10 @@ class MongoDBManager:
                 "email": email,
                 "password": generate_password_hash(password),
                 "created_at": datetime.utcnow(),
-                "last_login": None
+                "last_login": None,
+                "role": "user",  # Default role
+                "level": 1,      # Default level
+                "status": "active"
             })
             print(f"사용자 생성 결과: {result.inserted_id}")
             return user_id
@@ -201,6 +206,20 @@ class MongoDBManager:
                 "rating_distribution": np.histogram(stats[0]["ratings"], bins=5)[0].tolist()
             }
         return None
+
+    def save_log(self, log_data):
+        """로그를 저장합니다."""
+        try:
+            result = self.logs.insert_one(log_data)
+            if result.inserted_id:
+                print(f"로그 저장 성공: {result.inserted_id}")
+                return result.inserted_id
+            else:
+                raise Exception("로그 저장 실패")
+                
+        except Exception as e:
+            print(f"로그 저장 중 오류: {str(e)}")
+            raise e
 
 class ReinforcementLearner:
     def __init__(self, mongo_db):
@@ -510,6 +529,91 @@ def jwt_required():
         return decorated_function
     return decorator
 
+# Admin required decorator
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+        
+        try:
+            payload = jwt_manager.verify_token(token.split(' ')[1])
+            user = mongodb_manager.users.find_one({'_id': ObjectId(payload['user_id'])})
+            if not user or user.get('role') != 'admin':
+                return jsonify({'message': 'Admin privileges required'}), 403
+        except:
+            return jsonify({'message': 'Invalid token'}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Admin routes
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def get_users():
+    users = list(mongodb_manager.users.find({}, {'password': 0}))
+    for user in users:
+        user['_id'] = str(user['_id'])
+    return jsonify(users)
+
+@app.route('/api/admin/users/<user_id>', methods=['PUT'])
+@admin_required
+def update_user(user_id):
+    try:
+        data = request.json
+        allowed_fields = ['email', 'role', 'status', 'level']
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+        
+        if not update_data:
+            return jsonify({'message': 'No valid fields to update'}), 400
+        
+        result = mongodb_manager.users.update_one(
+            {'_id': ObjectId(user_id)},
+            {'$set': update_data}
+        )
+        
+        if result.modified_count:
+            return jsonify({'message': 'User updated successfully'})
+        return jsonify({'message': 'User not found'}), 404
+        
+    except InvalidId:
+        return jsonify({'message': 'Invalid user ID'}), 400
+
+@app.route('/api/admin/users/<user_id>/reset-password', methods=['POST'])
+@admin_required
+def reset_user_password(user_id):
+    try:
+        new_password = request.json.get('new_password')
+        if not new_password:
+            return jsonify({'message': 'New password is required'}), 400
+            
+        hashed_password = generate_password_hash(new_password)
+        result = mongodb_manager.users.update_one(
+            {'_id': ObjectId(user_id)},
+            {'$set': {'password': hashed_password}}
+        )
+        
+        if result.modified_count:
+            return jsonify({'message': 'Password reset successfully'})
+        return jsonify({'message': 'User not found'}), 404
+        
+    except InvalidId:
+        return jsonify({'message': 'Invalid user ID'}), 400
+
+@app.route('/api/admin/users/<user_id>/logs', methods=['GET'])
+@admin_required
+def get_user_logs(user_id):
+    try:
+        # Get logs from MongoDB (assuming we store logs in a 'logs' collection)
+        logs = list(mongodb_manager.db.logs.find({'user_id': user_id}))
+        for log in logs:
+            log['_id'] = str(log['_id'])
+        return jsonify(logs)
+    except InvalidId:
+        return jsonify({'message': 'Invalid user ID'}), 400
+
+# Modify the existing register route to include user level
 @app.route('/api/register', methods=['POST'])
 def register():
     """새 사용자를 등록합니다."""
@@ -548,6 +652,7 @@ def register():
     except Exception as e:
         print(f"회원가입 중 오류 발생: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/login', methods=['POST'])
 def login():
