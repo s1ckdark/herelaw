@@ -5,7 +5,7 @@ const API_BASE_URL = 'http://localhost:5000/api';
 let currentSessionId = null;
 
 // 음성 녹음 관련 전역 변수
-let audioContext, analyser, mediaRecorder, audioChunks = [], audioBlob = null;
+let recordingTimer = null, recordingDuration = 0, audioContext, analyser, mediaRecorder = null, audioChunks = [], audioBlob = null;
 let isRecording = false;
 let audioStream = null;
 
@@ -218,6 +218,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // 초기에는 저장 버튼 숨김
         saveComplaintBtn.style.display = 'none';
     }
+    
+    // 녹음 버튼 이벤트
+    document.getElementById('recordButton').addEventListener('click', toggleRecording);
+    
+    // 파일 업로드 이벤트
+    document.getElementById('audioFileInput').addEventListener('change', handleAudioFileUpload);
+    
+    // 저장 버튼 이벤트
+    document.getElementById('saveVoiceButton').addEventListener('click', saveVoiceData);
+    
+    // 모달 닫힐 때 초기화
+    document.getElementById('voiceModal').addEventListener('hidden.bs.modal', resetVoiceModal);
 });
 
 // 인증 확인
@@ -310,19 +322,10 @@ function displaySessions(sessions) {
         // 세션 날짜를 한국어 형식으로 포맷팅
         const formattedDate = formatKoreanDateTime(session.created_at);
         
-        // 평가 상태 표시
-        const ratingStatus = session.rating 
-            ? `평가됨 (${session.rating}점)` 
-            : '평가 대기';
-        
         sessionElement.innerHTML = `
-            <div class="session-header">
+            <div class="session-header" onclick="loadSession('${session.session_id || session.session_id}')">
                 <span class="session-date">${formattedDate}</span>
-                <span class="session-rating-status">${ratingStatus}</span>
-            </div>
-            <div class="session-actions">
-                <button onclick="loadSession('${session.session_id || session.session_id}')">세션 보기</button>
-                ${!session.rating ? `<button onclick="openRatingModal('${session.session_id}')">세션 평가</button>` : ''}
+                <span class="session-title">${session.title ? `평가됨 (${session.rating}점)` : '평가 대기'}</span>
             </div>
         `;
         
@@ -1351,3 +1354,170 @@ async function summarizeConsultation() {
         alert(error.message || '상담 내역을 요약하는 중 오류가 발생했습니다.');
     }
 }
+
+// 음성 녹음 모달 관련 함수들
+function handleVoiceRecording() {
+    const voiceModal = new bootstrap.Modal(document.getElementById('voiceModal'));
+    
+    // 모달 표시 전 초기화
+    resetVoiceModal();
+    
+    // 녹음 버튼 이벤트 리스너 재설정
+    const recordButton = document.getElementById('recordButton');
+    recordButton.onclick = toggleRecording;
+    
+    // 저장 버튼 이벤트 리스너 설정
+    const saveButton = document.getElementById('saveVoiceButton');
+    saveButton.onclick = async () => {
+
+        try {
+            // audioBlob 정의 및 사용
+            const audioElement = document.getElementById('recordedAudio');
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+            if (audioBlob) {
+                const formData = new FormData();
+                formData.append('audio', audioBlob);
+                
+                // 로딩 표시
+                const loadingModal = document.getElementById('loadingModal');
+                loadingModal.classList.remove('hidden');
+                
+                // API 호출
+                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('음성 변환 실패');
+                }
+                
+                const result = await response.json();
+                
+                // 변환된 텍스트를 상담 입력창에 추가
+                const consultationText = document.getElementById('consultationText');
+                consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
+                
+                // 모달 닫기
+                voiceModal.hide();
+            }
+        } catch (error) {
+            console.error('음성 변환 오류:', error);
+            alert('음성 변환 중 오류가 발생했습니다.');
+        } finally {
+            // 로딩 모달 숨기기
+            const loadingModal = document.getElementById('loadingModal');
+            loadingModal.classList.add('hidden');
+        }
+    };
+    
+    // 모달 표시
+    voiceModal.show();
+}
+
+// 녹음 시작/중지 함수
+async function toggleRecording() {
+    const recordButton = document.getElementById('recordButton');
+    const recordingStatus = document.getElementById('recordingStatus');
+    
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        // 녹음 시작
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audioElement = document.getElementById('recordedAudio');
+                audioElement.src = audioUrl;
+                document.getElementById('audioPreview').classList.remove('d-none');
+            };
+            
+            mediaRecorder.start();
+            recordButton.classList.add('recording');
+            recordingStatus.textContent = '녹음 중...';
+            startRecordingTimer();
+            
+        } catch (error) {
+            console.error('마이크 접근 오류:', error);
+            alert('마이크 접근 권한이 필요합니다.');
+        }
+    } else {
+        // 녹음 중지
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        recordButton.classList.remove('recording');
+        recordingStatus.textContent = '녹음 완료';
+        stopRecordingTimer();
+    }
+}
+
+// 녹음 타이머 관련 함수들
+function startRecordingTimer() {
+    recordingDuration = 0;
+    updateRecordingTime();
+    recordingTimer = setInterval(updateRecordingTime, 1000);
+}
+
+function stopRecordingTimer() {
+    if (recordingTimer) {
+        clearInterval(recordingTimer);
+        recordingTimer = null;
+    }
+}
+
+function updateRecordingTime() {
+    recordingDuration++;
+    const minutes = Math.floor(recordingDuration / 60);
+    const seconds = recordingDuration % 60;
+    document.getElementById('recordingTime').textContent = 
+        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// 파일 업로드 처리
+function handleAudioFileUpload(event) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('audio/')) {
+        const audioUrl = URL.createObjectURL(file);
+        const audioElement = document.getElementById('uploadedAudio');
+        audioElement.src = audioUrl;
+        document.getElementById('uploadedAudioPreview').classList.remove('d-none');
+    }
+}
+
+// 음성 데이터 저장
+function saveVoiceData() {
+    // 녹음된 오디오나 업로드된 파일을 서버로 전송하는 로직
+    console.log("saveVoiceData");
+    let audioData;
+    audioData = new Blob(audioChunks, { type: 'audio/wav' });
+    if (audioData) {
+        // TODO: 서버로 오디오 데이터 전송
+        const modal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
+        modal.hide();
+        
+        // 모달 초기화
+        resetVoiceModal();
+    }
+}
+
+// 모달 초기화
+function resetVoiceModal() {
+    stopRecordingTimer();
+    document.getElementById('recordingTime').textContent = '00:00';
+    document.getElementById('recordingStatus').textContent = '녹음 대기중...';
+    document.getElementById('audioPreview').classList.add('d-none');
+    audioChunks = [];
+}
+
+

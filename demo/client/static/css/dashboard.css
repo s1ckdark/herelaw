@@ -100,10 +100,8 @@
 }
 
 .session-sidebar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 15px;
+    text-align:  left;
+    padding: 10px 0;
     border-bottom: 1px solid #e0e0e0;
 }
 
@@ -1011,4 +1009,81 @@
 
 .retry-button:hover {
     background: #45a049;
+}
+
+.consultation-input-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.input-actions {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: #666;
+    padding: 5px;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.icon-btn:hover {
+    color: #007bff;
+}
+
+.icon-btn i {
+    font-size: 1.2rem;
+}
+
+/* 녹음 버튼 스타일 */
+#recordButton {
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+
+#recordButton i {
+    font-size: 24px;
+}
+
+#recordButton.recording {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% {
+        background-color: #dc3545;
+    }
+    50% {
+        background-color: #000;
+    }
+}
+
+#recordingTime {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+/* 오디오 플레이어 스타일 */
+audio {
+    width: 100%;
+    margin-top: 10px;
+}
+
+/* 탭 내용 스타일 */
+.tab-content {
+    padding: 20px;
 }
