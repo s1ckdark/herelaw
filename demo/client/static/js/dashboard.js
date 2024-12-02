@@ -1,6 +1,3 @@
-// API 엔드포인트
-const API_BASE_URL = 'http://localhost:5000/api';
-
 // 현재 세션 ID를 추적하는 전역 변수
 let currentSessionId = null;
 
@@ -17,6 +14,177 @@ function formatTime(seconds) {
     const secs = Math.floor(seconds % 60);
     
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// 날짜 포맷 함수
+function formatKoreanDateTime(dateString) {
+    if (!dateString) return '날짜 정보 없음';
+    
+    try {
+        // 한국 시간대로 날짜 변환
+        const date = new Date(dateString);
+        
+        // 유효한 날짜인지 확인
+        if (isNaN(date.getTime())) {
+            return '유효하지 않은 날짜';
+        }
+        
+        // 한국 로케일 옵션 설정 (연, 월, 일, 시, 분까지 표기)
+        const options = {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        };
+        
+        // 한국어로 포맷팅
+        return new Intl.DateTimeFormat('ko-KR', options).format(date);
+    } catch (error) {
+        console.error('날짜 포맷 오류:', error);
+        return '날짜 형식 오류';
+    }
+}
+
+// 세션 목록 표시
+function displaySessions(sessions) {
+    const sessionList = document.getElementById('sessionList');
+    sessionList.innerHTML = ''; // Clear existing sessions
+
+    if (!sessions || sessions.length === 0) {
+        sessionList.innerHTML = '<p>저장된 세션이 없습니다.</p>';
+        return;
+    }
+
+    sessions.forEach(session => {
+        const sessionElement = document.createElement('div');
+        sessionElement.classList.add('session-item');
+        
+        // 세션 날짜를 한국어 형식으로 포맷팅
+        const formattedDate = formatKoreanDateTime(session.created_at);
+        
+        sessionElement.innerHTML = `
+            <div class="session-header" onclick="loadSession('${session.session_id || session.session_id}')">
+                <span class="session-date">${formattedDate}</span>
+                <span class="session-title">${session.title ? session.title : '제목 없음'}</span>
+            </div>
+        `;
+        
+        sessionList.appendChild(sessionElement);
+    });
+}
+
+// 세션 로드
+async function loadSession(sessionId) {
+    try {
+        // 세션 데이터 로드
+        const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('세션을 불러오는 데 실패했습니다.');
+        }
+
+        const sessionData = await response.json();
+        console.log('로드한 세션 데이터:', sessionData);
+
+        // 세션 날짜 표시
+        const sessionDateElement = document.getElementById('sessionDetailDate');
+        if (sessionDateElement) {
+            sessionDateElement.textContent = formatKoreanDateTime(sessionData.created_at);
+        }
+        // 소장 섹션 표시 및 내용 채우기 (sessionData.complaint.response)
+        const complaintContent = document.getElementById('complaintContent');
+        const complaintResult = document.getElementById('complaintResult');
+        const complaintEditTextarea = document.getElementById('complaintEditTextarea');
+        
+        console.log(complaintContent, complaintResult, complaintEditTextarea);
+        if (complaintContent && complaintResult && complaintEditTextarea) {
+            // 소장 섹션 보이기
+            complaintContent.classList.remove('hidden');
+
+            // 소장 내용 표시
+            if (sessionData.complaint.response) {
+                console.log(sessionData.complaint.complaint);
+                var text = sessionData.complaint.complaint;
+
+
+                complaintEditTextarea.value = text;
+                
+            } 
+
+            // 소장 작성 버튼들 상태 조정
+            const editComplaintBtn = document.getElementById('editComplaintBtn');
+            const saveComplaintBtn = document.getElementById('saveComplaintBtn');
+            
+            if (editComplaintBtn) editComplaintBtn.style.display = 'inline-block';
+            if (saveComplaintBtn) saveComplaintBtn.style.display = 'none';
+        }
+
+        // 현재 세션 ID 업데이트
+        currentSessionId = sessionId;
+
+    } catch (error) {
+        console.error('세션 로드 중 오류:', error);
+    }
+}
+
+// 세션 목록 로드
+async function loadSessions() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/sessions`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const sessions = await response.json();
+            displaySessions(sessions);
+        } else if (response.status === 401) {
+            logout();
+        }
+    } catch (error) {
+        console.error('세션 로드 중 오류:', error);
+    }
+}
+
+// 새 세션 시작 함수
+function startNewSession() {
+    // Clear any existing session data
+    currentSessionId = null;
+    selectedRating = 0;
+    
+    // Reset UI elements
+    const consultationText = document.getElementById('consultationText');
+    if (consultationText) consultationText.value = '';
+    
+    const conversationHistory = document.getElementById('conversationHistory');
+    if (conversationHistory) conversationHistory.innerHTML = '';
+    
+    const complaintContent = document.getElementById('complaintContent');
+    if (complaintContent) complaintContent.innerHTML = '';
+    
+    const complaintEditTextarea = document.getElementById('complaintEditTextarea');
+    if (complaintEditTextarea) complaintEditTextarea.value = '';
+    
+    const complaintSection = document.getElementById('complaintSection');
+    if (complaintSection) complaintSection.style.display = 'none';
+    
+    const convertedTextDisplay = document.getElementById('convertedTextDisplay');
+    if (convertedTextDisplay) convertedTextDisplay.value = '';
+    
+    const conversationSummary = document.getElementById('conversationSummary');
+    if (conversationSummary) conversationSummary.value = '';
+    // Switch to text tab and start consultation
+    switchTab('text');
+    startConsultation();
 }
 
 // 소장 수정 모드 토글 함수
@@ -90,547 +258,13 @@ async function saveComplaint() {
     }
 }
 
-// 문서 생성 함수 (진행 표시줄 추가)
-async function generateDocument() {
-    const transcription = document.getElementById('convertedTextDisplay').value;
-    const summary = document.getElementById('conversationSummary').value;
-    const generateDocumentBtn = document.getElementById('generateDocumentBtn');
-    const progressContainer = document.createElement('div');
-    
-    try {
-        // 진행 표시줄 생성
-        progressContainer.innerHTML = `
-            <div class="progress-bar-container">
-                <div class="progress-bar" id="documentGenerationProgress">
-                    <div class="progress-bar-fill"></div>
-                </div>
-                <div class="progress-text">소장 생성 중...</div>
-            </div>
-        `;
-        generateDocumentBtn.parentNode.insertBefore(progressContainer, generateDocumentBtn.nextSibling);
-        
-        // 버튼 비활성화
-        generateDocumentBtn.disabled = true;
-        
-        // 진행 표시줄 애니메이션
-        const progressBarFill = document.querySelector('.progress-bar-fill');
-        const progressText = document.querySelector('.progress-text');
-        
-        // 가상의 진행 애니메이션
-        let progress = 0;
-        const animateProgress = setInterval(() => {
-            progress += Math.random() * 20;
-            if (progress > 90) progress = 90;
-            progressBarFill.style.width = `${progress}%`;
-        }, 500);
-
-        // 서버에 문서 생성 요청
-        const response = await fetch('/api/generate_document', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                transcription: transcription,
-                summary: summary
-            })
-        });
-
-        // 애니메이션 중지
-        clearInterval(animateProgress);
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || '문서 생성 실패');
-        }
-
-        // 문서 다운로드
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = '이혼소장.docx';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        // 진행 표시줄 완료
-        progressBarFill.style.width = '100%';
-        progressText.textContent = '소장 생성 완료!';
-        
-        // 잠시 후 진행 표시줄 제거
-        setTimeout(() => {
-            progressContainer.remove();
-        }, 2000);
-
-    } catch (error) {
-        console.error('문서 생성 오류:', error);
-        
-        // 진행 표시줄 오류 상태로 변경
-        const progressBarFill = document.querySelector('.progress-bar-fill');
-        const progressText = document.querySelector('.progress-text');
-        
-        if (progressBarFill) {
-            progressBarFill.style.backgroundColor = '#ff4444';
-            progressText.textContent = '문서 생성 중 오류 발생';
-        }
-        
-        alert(error.message || '문서 생성 중 오류가 발생했습니다.');
-    } finally {
-        // 버튼 다시 활성화
-        generateDocumentBtn.disabled = false;
-    }
-}
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
     loadSessions();
-    
-    // 음성 녹음 및 업로드 초기화
-    initializeVoiceUpload();
-    
-    // 음성 녹음 기능 초기화
-    if (document.getElementById('recordButton')) {
-        initializeVoiceRecording();
-    }
-    
-    // 문서 생성 버튼 이벤트 리스너 추가
-    const generateDocumentBtn = document.getElementById('generateDocumentBtn');
-    if (generateDocumentBtn) {
-        generateDocumentBtn.addEventListener('click', generateDocument);
-    }
-    
-    // 텍스트 변환 버튼 이벤트 리스너
-    const generateTextBtn = document.getElementById('generateTextBtn');
-
-    // 소장 수정 모드 토글 함수
-    const editComplaintBtn = document.getElementById('editComplaintBtn');
-    if (editComplaintBtn) {
-        editComplaintBtn.addEventListener('click', toggleComplaintEdit);
-    }
-    
-    // 소장 저장 버튼 이벤트 리스너
-    const saveComplaintBtn = document.getElementById('saveComplaintBtn');
-    if (saveComplaintBtn) {
-        saveComplaintBtn.addEventListener('click', saveComplaint);
-        // 초기에는 저장 버튼 숨김
-        saveComplaintBtn.style.display = 'none';
-    }
-    
-    // 녹음 버튼 이벤트
-    document.getElementById('recordButton').addEventListener('click', toggleRecording);
-    
-    // 파일 업로드 이벤트
-    document.getElementById('audioFileInput').addEventListener('change', handleAudioFileUpload);
-    
-    // 저장 버튼 이벤트
-    document.getElementById('saveVoiceButton').addEventListener('click', saveVoiceData);
-    
-    // 모달 닫힐 때 초기화
-    document.getElementById('voiceModal').addEventListener('hidden.bs.modal', resetVoiceModal);
 });
 
-// 인증 확인
-function checkAuth() {
-    const token = localStorage.getItem('token');
-    if (!token) {
-        window.location.href = '/';
-        return;
-    }
-    
-    // 사용자 정보 표시
-    const username = localStorage.getItem('username');
-    document.getElementById('username').textContent = username;
-}
-
-// 로그아웃
-function logout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    window.location.href = '/';
-}
-
-// 세션 목록 로드
-async function loadSessions() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/sessions`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-        
-        if (response.ok) {
-            const sessions = await response.json();
-            displaySessions(sessions);
-        } else if (response.status === 401) {
-            logout();
-        }
-    } catch (error) {
-        console.error('세션 로드 중 오류:', error);
-    }
-}
-
-// 날짜 포맷 함수
-function formatKoreanDateTime(dateString) {
-    if (!dateString) return '날짜 정보 없음';
-    
-    try {
-        // 한국 시간대로 날짜 변환
-        const date = new Date(dateString);
-        
-        // 유효한 날짜인지 확인
-        if (isNaN(date.getTime())) {
-            return '유효하지 않은 날짜';
-        }
-        
-        // 한국 로케일 옵션 설정 (연, 월, 일, 시, 분까지 표기)
-        const options = {
-            timeZone: 'Asia/Seoul',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        };
-        
-        // 한국어로 포맷팅
-        return new Intl.DateTimeFormat('ko-KR', options).format(date);
-    } catch (error) {
-        console.error('날짜 포맷 오류:', error);
-        return '날짜 형식 오류';
-    }
-}
-
-// 세션 목록 표시
-function displaySessions(sessions) {
-    console.log('로드한 세션 목록:', sessions);
-    const sessionList = document.getElementById('sessionList');
-    sessionList.innerHTML = ''; // Clear existing sessions
-
-    if (!sessions || sessions.length === 0) {
-        sessionList.innerHTML = '<p>저장된 세션이 없습니다.</p>';
-        return;
-    }
-
-    sessions.forEach(session => {
-        const sessionElement = document.createElement('div');
-        sessionElement.classList.add('session-item');
-        
-        // 세션 날짜를 한국어 형식으로 포맷팅
-        const formattedDate = formatKoreanDateTime(session.created_at);
-        
-        sessionElement.innerHTML = `
-            <div class="session-header" onclick="loadSession('${session.session_id || session.session_id}')">
-                <span class="session-date">${formattedDate}</span>
-                <span class="session-title">${session.title ? `평가됨 (${session.rating}점)` : '평가 대기'}</span>
-            </div>
-        `;
-        
-        sessionList.appendChild(sessionElement);
-    });
-}
-
-// 세션 로드
-async function loadSession(sessionId) {
-    try {
-        // 세션 데이터 로드
-        const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('세션을 불러오는 데 실패했습니다.');
-        }
-
-        const sessionData = await response.json();
-        console.log('로드한 세션 데이터:', sessionData);
-
-        // 탭 전환
-        switchTab('text');
-
-        // 세션 날짜 표시
-        const sessionDateElement = document.getElementById('sessionDetailDate');
-        if (sessionDateElement) {
-            sessionDateElement.textContent = formatKoreanDateTime(sessionData.created_at);
-        }
-
-        // 상담 내용 표시 (sessionData.conversation)
-        const consultationTextElement = document.getElementById('consultationText');
-        if (consultationTextElement) {
-            consultationTextElement.value = sessionData.consultation_text || '상담 내용이 없습니다.';
-        }
-
-        // 대화 기록 표시 (complaint.response)
-        const conversationContainer = document.getElementById('conversationHistory');
-        if (conversationContainer) {
-            conversationContainer.innerHTML = '';
-            if (sessionData.complaint && sessionData.complaint.response) {
-                const conversations = sessionData.complaint.response;
-                
-                if (typeof conversations === 'string') {
-                    conversationContainer.innerHTML = conversations;
-                } else if (Array.isArray(conversations)) {
-                    conversations.forEach(conversation => {
-                        const messageElement = document.createElement('div');
-                        messageElement.classList.add('conversation-message');
-                        messageElement.innerHTML = `
-                            <strong>${conversation.role === 'user' ? '사용자' : '시스템'}</strong>
-                            <p>${conversation.content || conversation}</p>
-                        `;
-                        conversationContainer.appendChild(messageElement);
-                    });
-                } else {
-                    conversationContainer.innerHTML = '대화 내용이 없습니다.';
-                }
-            } else {
-                conversationContainer.innerHTML = '대화 내용이 없습니다.';
-            }
-        }
-
-        // 소장 섹션 표시 및 내용 채우기 (sessionData.complaint.response)
-        const complaintSection = document.getElementById('complaintSection');
-        const complaintContentElement = document.getElementById('complaintContent');
-        const complaintEditTextarea = document.getElementById('complaintEditTextarea');
-        
-        if (complaintSection && complaintContentElement && complaintEditTextarea) {
-            // 소장 섹션 보이기
-            complaintSection.style.display = 'block';
-
-            // 소장 내용 표시
-            if (sessionData.complaint.response) {
-                complaintContentElement.innerHTML = sessionData.complaint.complaint;
-                complaintEditTextarea.value = sessionData.complaint.complaint;
-                
-                // 평가 상태 표시
-                const ratingDisplay = document.createElement('div');
-                ratingDisplay.className = 'rating-display';
-                ratingDisplay.innerHTML = sessionData.rating 
-                    ? `평가: ${'⭐'.repeat(sessionData.rating)}` 
-                    : '평가 없음';
-                complaintContentElement.appendChild(ratingDisplay);
-            } else {
-                complaintContentElement.innerHTML = '생성된 소장이 없습니다.';
-                complaintEditTextarea.value = '';
-            }
-
-            // 소장 작성 버튼들 상태 조정
-            const editComplaintBtn = document.getElementById('editComplaintBtn');
-            const saveComplaintBtn = document.getElementById('saveComplaintBtn');
-            
-            if (editComplaintBtn) editComplaintBtn.style.display = 'inline-block';
-            if (saveComplaintBtn) saveComplaintBtn.style.display = 'none';
-        }
-
-        // 음성 관련 정보 표시
-        const convertedTextDisplay = document.getElementById('convertedTextDisplay');
-        if (convertedTextDisplay && sessionData.transcribed_text) {
-            convertedTextDisplay.value = sessionData.transcribed_text;
-        }
-
-        const conversationSummary = document.getElementById('conversationSummary');
-        if (conversationSummary && sessionData.conversation_summary) {
-            conversationSummary.value = sessionData.conversation_summary;
-        }
-
-        // 현재 세션 ID 업데이트
-        currentSessionId = sessionId;
-
-    } catch (error) {
-        console.error('세션 로드 중 오류:', error);
-        alert(error.message);
-    }
-}
-
-// 탭 전환
-function switchTab(tabName) {
-    const tabs = document.querySelectorAll('.tab-btn');
-    const contents = document.querySelectorAll('.tab-content');
-    
-    tabs.forEach(tab => tab.classList.remove('active'));
-    contents.forEach(content => content.classList.remove('active'));
-    
-    document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
-    document.getElementById(`${tabName}Input`).classList.add('active');
-    
-    // 음성 녹음 탭에서 초기화
-    if (tabName === 'voice') {
-        initializeVoiceRecording();
-    }
-}
-
-// 새 세션 시작 함수
-function startNewSession() {
-    // Clear any existing session data
-    currentSessionId = null;
-    selectedRating = 0;
-    
-    // Reset UI elements
-    const consultationText = document.getElementById('consultationText');
-    if (consultationText) consultationText.value = '';
-    
-    const conversationHistory = document.getElementById('conversationHistory');
-    if (conversationHistory) conversationHistory.innerHTML = '';
-    
-    const complaintContent = document.getElementById('complaintContent');
-    if (complaintContent) complaintContent.innerHTML = '';
-    
-    const complaintEditTextarea = document.getElementById('complaintEditTextarea');
-    if (complaintEditTextarea) complaintEditTextarea.value = '';
-    
-    const complaintSection = document.getElementById('complaintSection');
-    if (complaintSection) complaintSection.style.display = 'none';
-    
-    const convertedTextDisplay = document.getElementById('convertedTextDisplay');
-    if (convertedTextDisplay) convertedTextDisplay.value = '';
-    
-    const conversationSummary = document.getElementById('conversationSummary');
-    if (conversationSummary) conversationSummary.value = '';
-    // Switch to text tab and start consultation
-    switchTab('text');
-    startConsultation();
-}
-
-// 상담 시작
-// 상담 시작 함수 수정
-async function startConsultation() {
-    const consultationText = document.getElementById('consultationText').value.trim();
-    if (!consultationText) {
-        alert('상담 내용을 입력해주세요.');
-        return;
-    }
-
-    // 로딩 컨테이너 생성
-    const loadingContainer = document.createElement('div');
-    loadingContainer.className = 'loading-container';
-    loadingContainer.innerHTML = `
-        <div class="loading-overlay"></div>
-        <div class="loading-content">
-            <div class="progress-container">
-                <div class="progress-bar">
-                    <div class="progress-bar-fill"></div>
-                </div>
-                <div class="progress-text">소장 생성 중...</div>
-                <div class="progress-percentage">0%</div>
-            </div>
-        </div>
-    `;
-
-    // 로딩 컨테이너를 body에 추가
-    document.body.appendChild(loadingContainer);
-
-    const progressBarFill = loadingContainer.querySelector('.progress-bar-fill');
-    const progressText = loadingContainer.querySelector('.progress-text');
-    const progressPercentage = loadingContainer.querySelector('.progress-percentage');
-
-    // 프로그레스 바 애니메이션
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-        if (progress < 90) {
-            progress += Math.random() * 15;
-            if (progress > 90) progress = 90;
-            progressBarFill.style.width = `${progress}%`;
-            progressPercentage.textContent = `${Math.round(progress)}%`;
-        }
-    }, 1000);
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/generate-complaint`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                user_input: consultationText,
-                model: 'gpt-4-turbo'
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || errorData.error || '소장 생성 실패');
-        }
-
-        const data = await response.json();
-        
-        // 프로그레스 바 100%로 설정
-        clearInterval(progressInterval);
-        progressBarFill.style.width = '100%';
-        progressPercentage.textContent = '100%';
-        progressText.textContent = '소장 생성 완료!';
-
-        // 소장 내용 표시
-        if (data.complaint) {
-            const complaintSection = document.getElementById('complaintSection');
-            const complaintContent = document.getElementById('complaintContent');
-            
-            if (complaintSection && complaintContent) {
-                complaintSection.style.display = 'block';
-                complaintContent.innerHTML = data.complaint
-                    .replace(/\n\n/g, '</p><p>')
-                    .replace(/\n/g, '<br>');
-                
-                complaintSection.style.display = 'block';
-                complaintContent.value = data.complaint;
-                
-                // 세션 ID 저장
-                if (data.session_id) {
-                    currentSessionId = data.session_id;
-                }
-            }
-        }
-
-        // 잠시 후 로딩 컨테이너 제거
-        setTimeout(() => {
-            loadingContainer.remove();
-        }, 1000);
-
-    } catch (error) {
-        console.error('소장 생성 오류:', error);
-        
-        // 에러 상태로 프로그레스 바 변경
-        clearInterval(progressInterval);
-        progressBarFill.style.backgroundColor = '#ff4444';
-        progressText.textContent = '소장 생성 실패';
-        progressPercentage.style.display = 'none';
-
-        // 에러 메시지 표시
-        const errorMessage = document.createElement('div');
-        errorMessage.className = 'error-message';
-        errorMessage.textContent = error.message.includes('module') 
-            ? '서버 설정 오류가 발생했습니다. 관리자에게 문의해주세요.'
-            : '소장 생성 중 오류가 발생했습니다.';
-        
-        loadingContainer.querySelector('.loading-content').appendChild(errorMessage);
-
-        // 재시도 버튼 추가
-        const retryButton = document.createElement('button');
-        retryButton.className = 'retry-button';
-        retryButton.textContent = '다시 시도';
-        retryButton.onclick = () => {
-            loadingContainer.remove();
-            startConsultation();
-        };
-        loadingContainer.querySelector('.loading-content').appendChild(retryButton);
-    }
-}
-
-// 대화 표시
-function displayConversation(message) {
-    const history = document.getElementById('conversationHistory');
-    history.innerHTML += `
-        <div class="message">
-            <div class="message-content">${message}</div>
-        </div>
-    `;
-    history.scrollTop = history.scrollHeight;
-}
 
 // 소장 표시
 function displayComplaint(complaint) {
@@ -748,776 +382,22 @@ function downloadComplaint() {
     link.click();
 }
 
-// 소장 평가
-function openRatingModal(currentSessionId) {
-    // 이미 평가했는지 확인
-    if (localStorage.getItem(`session_rated_${currentSessionId}`)) {
-        alert('이미 이 세션에 대해 평가하셨습니다.');
-        return;
-    }
-
-    const ratingModal = document.getElementById('ratingModal');
-    ratingModal.innerHTML = `
-        <div class="rating-content">
-            <h3>소장 평가</h3>
-            <div class="rating-stars">
-                <span class="star" data-rating="1" onclick="selectRating(1)">★</span>
-                <span class="star" data-rating="2" onclick="selectRating(2)">★</span>
-                <span class="star" data-rating="3" onclick="selectRating(3)">★</span>
-                <span class="star" data-rating="4" onclick="selectRating(4)">★</span>
-                <span class="star" data-rating="5" onclick="selectRating(5)">★</span>
-            </div>
-            <div class="rating-feedback">
-                <textarea id="ratingFeedback" placeholder="이 소장에 대한 피드백을 남겨주세요 (선택사항)"></textarea>
-            </div>
-            <div class="rating-actions">
-                <button class="btn submit-btn" onclick="submitRating()">평가 제출</button>
-                <button class="btn close-btn" onclick="closeRatingModal()">취소</button>
-            </div>
-        </div>
-    `;
+// 입력창 자동 크기 조절
+function initializeAutoResize() {
+    const textarea = document.getElementById('consultationText');
     
-    ratingModal.classList.remove('hidden');
-    selectedRating = 0; // Reset rating when opening modal
-}
-
-// 별점 선택
-let selectedRating = 0;
-
-function selectRating(rating) {
-    selectedRating = rating;
-    const stars = document.querySelectorAll('.star');
-    stars.forEach(star => {
-        const starRating = parseInt(star.dataset.rating);
-        if (starRating <= rating) {
-            star.classList.add('selected');
-        } else {
-            star.classList.remove('selected');
+    textarea.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+    });
+    
+    // Enter 키로 전송
+    textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            startConsultation();
         }
     });
-}
-
-// 평가 제출
-async function submitRating() {
-    console.log(currentSessionId)
-    if (selectedRating === 0) {
-        alert('평점을 선택해주세요.');
-        return;
-    }
-
-    if (!currentSessionId) {
-        console.error('현재 세션 ID가 없습니다.');
-        alert('세션 정보를 찾을 수 없습니다. 다시 시도해주세요.');
-        return;
-    }
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-        alert('인증 토큰이 만료되었습니다. 다시 로그인해주세요.');
-        return;
-    }
-
-    const feedback = document.getElementById('ratingFeedback')?.value.trim() || '';
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/rate-session`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                session_id: currentSessionId,
-                rating: selectedRating,
-                feedback: feedback
-            })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-            localStorage.setItem(`session_rated_${currentSessionId}`, 'true');
-            closeRatingModal();
-            loadSessions();
-            alert('평가가 성공적으로 제출되었습니다.');
-        } else {
-            throw new Error(result.error || '평가 제출 중 오류가 발생했습니다.');
-        }
-    } catch (error) {
-        console.error('Rating submission error:', error);
-        alert(error.message || '평가 제출 중 오류가 발생했습니다.');
-    }
-}
-
-// 평가 모달 닫기
-function closeRatingModal() {
-    const modal = document.getElementById('ratingModal');
-    if (modal) {
-        modal.classList.add('hidden');
-        selectedRating = 0; // Reset rating when closing modal
-    }
-}
-
-// 음성 녹음 초기화
-function initializeVoiceRecording() {
-    const canvas = document.getElementById('waveformCanvas');
-    const startRecordingBtn = document.getElementById('startRecordingBtn');
-    const recordingResult = document.getElementById('recordingResult');
-    const playPauseBtn = document.getElementById('playPauseBtn');
-    const progressBar = document.getElementById('progressBar');
-    const currentTimeSpan = document.getElementById('currentTime');
-    const totalTimeSpan = document.getElementById('totalTime');
-    const downloadRecordingBtn = document.getElementById('downloadRecordingBtn');
-    const generateTextBtn = document.getElementById('generateTextBtn');
-    const consultationText = document.getElementById('consultationText');
-
-    let audioPlayer = null;
-
-    // 캔버스 초기화
-    const canvasCtx = canvas.getContext('2d');
-    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 버튼 상태 초기화
-    function resetButtonStates() {
-        startRecordingBtn.textContent = '녹음 시작';
-        startRecordingBtn.classList.remove('recording');
-        recordingResult.classList.add('hidden');
-    }
-
-    // 녹음 시작 버튼 이벤트
-    startRecordingBtn.onclick = async () => {
-        try {
-            if (!isRecording) {
-                // 녹음 시작
-                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(audioStream);
-                source.connect(analyser);
-                
-                mediaRecorder = new MediaRecorder(audioStream);
-                audioChunks = [];
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    audioChunks.push(event.data);
-                };
-                
-                mediaRecorder.onstop = () => {
-                    audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                    
-                    // 오디오 플레이어 설정
-                    audioPlayer = initializeAudioPlayer(audioBlob);
-                    
-                    // 총 재생 시간 설정
-                    audioPlayer.onloadedmetadata = () => {
-                        totalTimeSpan.textContent = formatTime(audioPlayer.duration);
-                    };
-
-                    // 재생/일시정지 버튼 설정
-                    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                    playPauseBtn.onclick = () => {
-                        if (audioPlayer.paused) {
-                            audioPlayer.play();
-                            playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                        } else {
-                            audioPlayer.pause();
-                            playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                        }
-                    };
-
-                    // 진행 표시줄 업데이트
-                    audioPlayer.ontimeupdate = () => {
-                        const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-                        progressBar.style.width = `${progress}%`;
-                        currentTimeSpan.textContent = formatTime(audioPlayer.currentTime);
-                    };
-
-                    // 재생 완료 시 버튼 초기화
-                    audioPlayer.onended = () => {
-                        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                    };
-                    
-                    // UI 업데이트
-                    recordingResult.classList.remove('hidden');
-                    isRecording = false;
-                };
-                
-                mediaRecorder.start();
-                startRecordingBtn.textContent = '녹음 종료';
-                startRecordingBtn.classList.add('recording');
-                isRecording = true;
-                
-                // 파형 시각화
-                visualizeAudio(canvas, analyser);
-            } else {
-                // 녹음 종료
-                mediaRecorder.stop();
-                audioStream.getTracks().forEach(track => track.stop());
-                startRecordingBtn.textContent = '녹음 시작';
-                startRecordingBtn.classList.remove('recording');
-            }
-        } catch (error) {
-            console.error('녹음 시작/종료 오류:', error);
-            alert('마이크 접근 권한을 허용해주세요.');
-            resetButtonStates();
-        }
-    };
-
-    // 다운로드 버튼 이벤트
-    downloadRecordingBtn.onclick = () => {
-        if (audioBlob) {
-            const audioURL = URL.createObjectURL(audioBlob);
-            const a = document.createElement('a');
-            a.href = audioURL;
-            a.download = 'recording.wav';
-            a.click();
-        }
-    };
-
-    // 텍스트 생성 버튼 이벤트
-    generateTextBtn.onclick = async () => {
-        if (audioBlob) {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: formData
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    document.getElementById('consultationText').value = result.text;
-                    alert('음성이 텍스트로 성공적으로 변환되었습니다.');
-                } else {
-                    const error = await response.json();
-                    alert(`텍스트 변환 오류: ${error.error}`);
-                }
-            } catch (error) {
-                console.error('텍스트 생성 오류:', error);
-                alert('텍스트 생성 중 오류가 발생했습니다.');
-            }
-        }
-    };
-
-    // 녹음 중지 버튼 이벤트
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && isRecording) {
-            mediaRecorder.stop();
-            audioStream.getTracks().forEach(track => track.stop());
-            resetButtonStates();
-        }
-    });
-}
-
-// 오디오 파형 시각화
-function visualizeAudio(canvas, analyser) {
-    const canvasCtx = canvas.getContext('2d');
-    const WIDTH = canvas.offsetWidth; // Use full width of container
-    const HEIGHT = 100; // width:height = 16:10
-    console.log(WIDTH, HEIGHT);
-    canvas.height = HEIGHT; // Explicitly set canvas height
-    
-    analyser.fftSize = 2048;
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
-    function draw() {
-        requestAnimationFrame(draw);
-        
-        analyser.getByteTimeDomainData(dataArray);
-        
-        canvasCtx.fillStyle = 'rgb(240, 240, 240)';
-        canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
-        
-        canvasCtx.lineWidth = 2;
-        canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
-        
-        canvasCtx.beginPath();
-        
-        const sliceWidth = WIDTH * 1.0 / bufferLength;
-        let x = 0;
-        
-        // Find the midpoint of the amplitude range
-        const midHeight = HEIGHT / 2;
-        const amplitudeScale = HEIGHT / 4; // Reduce amplitude to make waveform more compact
-        
-        for (let i = 0; i < bufferLength; i++) {
-            const v = dataArray[i] / 128.0 - 1; // Normalize to range [-1, 1]
-            const y = v * amplitudeScale + midHeight;
-            
-            if (i === 0) {
-                canvasCtx.moveTo(x, y);
-            } else {
-                canvasCtx.lineTo(x, y);
-            }
-            
-            x += sliceWidth;
-        }
-        
-        canvasCtx.lineTo(canvas.width, midHeight);
-        canvasCtx.stroke();
-    }
-    
-    if (isRecording) {
-        draw();
-    }
-}
-
-// 음성 파일 업로드 초기화
-function initializeVoiceUpload() {
-    const audioFileUpload = document.getElementById('audioFileUpload');
-    const uploadedFileInfo = document.getElementById('uploadedFileInfo');
-    const processAudioBtn = document.getElementById('processAudioBtn');
-    const consultationText = document.getElementById('consultationText');
-
-    audioFileUpload.addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            uploadedFileInfo.textContent = `선택된 파일: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
-            processAudioBtn.classList.remove('hidden');
-        }
-    });
-
-    processAudioBtn.addEventListener('click', async () => {
-        const file = audioFileUpload.files[0];
-        if (file) {
-            const formData = new FormData();
-            formData.append('audio', file);
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: formData
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    consultationText.textContent = result.text;
-                } else {
-                    const error = await response.json();
-                    consultationText.textContent = `오류: ${error.error}`;
-                }
-            } catch (error) {
-                console.error('음성 파일 처리 오류:', error);
-                transcribedText.textContent = '음성 파일 처리 중 오류가 발생했습니다.';
-                transcribedText.classList.remove('hidden');
-            }
-        }
-    });
-}
-
-// 오디오 플레이어 초기화
-function initializeAudioPlayer(audioBlob) {
-    const audioPlayer = document.getElementById('audioPlayer');
-    const playPauseBtn = document.getElementById('playPauseBtn');
-    const progressBar = document.getElementById('progressBar');
-    const currentTimeEl = document.getElementById('currentTime');
-    const totalTimeEl = document.getElementById('totalTime');
-
-    // Remove any existing audio elements
-    if (audioPlayer) {
-        audioPlayer.remove();
-    }
-
-    // Create new audio element
-    const audioElement = new Audio(URL.createObjectURL(audioBlob));
-    audioElement.id = 'audioPlayer';
-    
-    // Track play/pause state
-    let isPlaying = false;
-
-    // Update play/pause button
-    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-    
-    // Event listeners for audio
-    audioElement.addEventListener('loadedmetadata', () => {
-        // Set total time
-        totalTimeEl.textContent = formatTime(audioElement.duration);
-    });
-
-    audioElement.addEventListener('timeupdate', () => {
-        // Update current time and progress bar
-        const progress = (audioElement.currentTime / audioElement.duration) * 100;
-        progressBar.style.width = `${progress}%`;
-        currentTimeEl.textContent = formatTime(audioElement.currentTime);
-    });
-
-    audioElement.addEventListener('ended', () => {
-        // Reset play button and progress
-        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-        progressBar.style.width = '0%';
-        isPlaying = false;
-    });
-
-    // Play/Pause functionality
-    playPauseBtn.addEventListener('click', () => {
-        if (isPlaying) {
-            audioElement.pause();
-            playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-            isPlaying = false;
-        } else {
-            audioElement.play();
-            playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-            isPlaying = true;
-        }
-    });
-
-    // Append audio element to body (hidden)
-    document.body.appendChild(audioElement);
-
-    return audioElement;
-}
-
-// 녹음 중지 이벤트 핸들러
-function handleRecordingStop(audioBlob) {
-    // Existing recording stop logic
-    const recordingResult = document.getElementById('recordingResult');
-    recordingResult.classList.remove('hidden');
-    
-    // Draw waveform
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const fileReader = new FileReader();
-    
-    fileReader.onloadend = async () => {
-        const arrayBuffer = fileReader.result;
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        drawWaveform(audioBuffer);
-    };
-    
-    fileReader.readAsArrayBuffer(audioBlob);
-    
-    // Initialize audio player
-    const audioPlayer = initializeAudioPlayer(audioBlob);
-    
-    // Update download button
-    const downloadBtn = document.getElementById('downloadRecordingBtn');
-    downloadBtn.onclick = () => {
-        const url = URL.createObjectURL(audioBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'recording.webm';
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-}
-
-// 요약 생성
-async function summarizeTranscription(transcription) {
-    try {
-        const response = await fetch('/summarize-text', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                text: transcription,
-                model: 'gpt-4'
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error('Summarization failed');
-        }
-
-        const data = await response.json();
-        return data.summary;
-    } catch (error) {
-        console.error('Error summarizing text:', error);
-        return '요약 중 오류가 발생했습니다.';
-    }
-}
-
-// 파형 그리기
-function drawWaveform(audioBuffer) {
-    const canvas = document.getElementById('waveformCanvas');
-    const canvasWidth = canvas.offsetWidth;
-    const canvasHeight = canvas.height;
-    
-    const ctx = canvas.getContext('2d');
-    
-    // Clear previous drawing
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    
-    const channelData = audioBuffer.getChannelData(0);
-    const step = Math.ceil(channelData.length / canvasWidth);
-    
-    // Calculate max amplitude to normalize waveform
-    let maxAmplitude = 0;
-    for (let i = 0; i < channelData.length; i++) {
-        maxAmplitude = Math.max(maxAmplitude, Math.abs(channelData[i]));
-    }
-    
-    // Vertical centering variables
-    const midY = canvasHeight / 2;
-    const drawHeight = canvasHeight / 2; // Use half the canvas height for drawing
-    
-    ctx.beginPath();
-    ctx.moveTo(0, midY);
-    
-    for (let x = 0; x < canvasWidth; x++) {
-        let min = 0;
-        let max = 0;
-        
-        for (let j = 0; j < step; j++) {
-            const index = Math.floor((x * step + j) * channelData.length / canvasWidth);
-            if (index < channelData.length) {
-                const datum = channelData[index];
-                if (datum < min) min = datum;
-                if (datum > max) max = datum;
-            }
-        }
-        
-        // Normalize and scale
-        const normalizedMin = (min / maxAmplitude) * drawHeight;
-        const normalizedMax = (max / maxAmplitude) * drawHeight;
-        
-        // Draw waveform centered
-        ctx.lineTo(x, midY - normalizedMin);
-        ctx.lineTo(x, midY - normalizedMax);
-    }
-    
-    ctx.strokeStyle = '#4CAF50';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-}
-
-// 음성 텍스트 생성
-// async function generateTextFromAudio() {
-//     try {
-//         // Existing text generation logic
-//         const transcription = await performSpeechRecognition();
-        
-//         // Display transcription
-//         const convertedTextDisplay = document.getElementById('convertedTextDisplay');
-//         convertedTextDisplay.textContent = transcription;
-        
-//         // Summarize transcription
-//         const summary = await summarizeTranscription(transcription);
-        
-//         // Add summary to conversation history
-//         await addMessageToChatHistory('system', '음성 요약', summary);
-        
-//     } catch (error) {
-//         console.error('Text generation error:', error);
-//         alert('텍스트 변환 중 오류가 발생했습니다.');
-//     }
-// }
-
-// 상담 내역 요약 및 정리 함수
-async function summarizeConsultation() {
-    const consultationText = document.getElementById('consultationText');
-    const conversationSummary = document.getElementById('conversationSummary');
-        
-    try {
-        const response = await fetch(`${API_BASE_URL}/summarize-consultation`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                text: consultationText.value,
-                model: 'gpt-4o-mini'
-            })
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || '상담 내역 요약 실패');
-        }
-        
-        const data = await response.json();
-        
-        // 요약된 내용을 textarea에 표시
-        conversationSummary.value = data.summary || '요약을 생성할 수 없습니다.';
-        
-        // // 대화 기록에 추가 (선택적)
-        // if (typeof addMessageToChatHistory === 'function') {
-        //     await addMessageToChatHistory('system', '상담 내역 요약', data.summary);
-        // }
-        
-        // 세션 ID 저장 (필요한 경우)
-        if (data.session_id) {
-            localStorage.setItem('lastSummarySessionId', data.session_id);
-        }
-        
-    } catch (error) {
-        console.error('상담 내역 요약 오류:', error);
-        alert(error.message || '상담 내역을 요약하는 중 오류가 발생했습니다.');
-    }
-}
-
-// 음성 녹음 모달 관련 함수들
-function handleVoiceRecording() {
-    const voiceModal = new bootstrap.Modal(document.getElementById('voiceModal'));
-    
-    // 모달 표시 전 초기화
-    resetVoiceModal();
-    
-    // 녹음 버튼 이벤트 리스너 재설정
-    const recordButton = document.getElementById('recordButton');
-    recordButton.onclick = toggleRecording;
-    
-    // 저장 버튼 이벤트 리스너 설정
-    const saveButton = document.getElementById('saveVoiceButton');
-    saveButton.onclick = async () => {
-
-        try {
-            // audioBlob 정의 및 사용
-            const audioElement = document.getElementById('recordedAudio');
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-
-            if (audioBlob) {
-                const formData = new FormData();
-                formData.append('audio', audioBlob);
-                
-                // 로딩 표시
-                const loadingModal = document.getElementById('loadingModal');
-                loadingModal.classList.remove('hidden');
-                
-                // API 호출
-                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error('음성 변환 실패');
-                }
-                
-                const result = await response.json();
-                
-                // 변환된 텍스트를 상담 입력창에 추가
-                const consultationText = document.getElementById('consultationText');
-                consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-                
-                // 모달 닫기
-                voiceModal.hide();
-            }
-        } catch (error) {
-            console.error('음성 변환 오류:', error);
-            alert('음성 변환 중 오류가 발생했습니다.');
-        } finally {
-            // 로딩 모달 숨기기
-            const loadingModal = document.getElementById('loadingModal');
-            loadingModal.classList.add('hidden');
-        }
-    };
-    
-    // 모달 표시
-    voiceModal.show();
-}
-
-// 녹음 시작/중지 함수
-async function toggleRecording() {
-    const recordButton = document.getElementById('recordButton');
-    const recordingStatus = document.getElementById('recordingStatus');
-    
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-        // 녹음 시작
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-            
-            mediaRecorder.ondataavailable = (event) => {
-                audioChunks.push(event.data);
-            };
-            
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const audioElement = document.getElementById('recordedAudio');
-                audioElement.src = audioUrl;
-                document.getElementById('audioPreview').classList.remove('d-none');
-            };
-            
-            mediaRecorder.start();
-            recordButton.classList.add('recording');
-            recordingStatus.textContent = '녹음 중...';
-            startRecordingTimer();
-            
-        } catch (error) {
-            console.error('마이크 접근 오류:', error);
-            alert('마이크 접근 권한이 필요합니다.');
-        }
-    } else {
-        // 녹음 중지
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        recordButton.classList.remove('recording');
-        recordingStatus.textContent = '녹음 완료';
-        stopRecordingTimer();
-    }
-}
-
-// 녹음 타이머 관련 함수들
-function startRecordingTimer() {
-    recordingDuration = 0;
-    updateRecordingTime();
-    recordingTimer = setInterval(updateRecordingTime, 1000);
-}
-
-function stopRecordingTimer() {
-    if (recordingTimer) {
-        clearInterval(recordingTimer);
-        recordingTimer = null;
-    }
-}
-
-function updateRecordingTime() {
-    recordingDuration++;
-    const minutes = Math.floor(recordingDuration / 60);
-    const seconds = recordingDuration % 60;
-    document.getElementById('recordingTime').textContent = 
-        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
-
-// 파일 업로드 처리
-function handleAudioFileUpload(event) {
-    const file = event.target.files[0];
-    if (file && file.type.startsWith('audio/')) {
-        const audioUrl = URL.createObjectURL(file);
-        const audioElement = document.getElementById('uploadedAudio');
-        audioElement.src = audioUrl;
-        document.getElementById('uploadedAudioPreview').classList.remove('d-none');
-    }
-}
-
-// 음성 데이터 저장
-function saveVoiceData() {
-    // 녹음된 오디오나 업로드된 파일을 서버로 전송하는 로직
-    console.log("saveVoiceData");
-    let audioData;
-    audioData = new Blob(audioChunks, { type: 'audio/wav' });
-    if (audioData) {
-        // TODO: 서버로 오디오 데이터 전송
-        const modal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
-        modal.hide();
-        
-        // 모달 초기화
-        resetVoiceModal();
-    }
-}
-
-// 모달 초기화
-function resetVoiceModal() {
-    stopRecordingTimer();
-    document.getElementById('recordingTime').textContent = '00:00';
-    document.getElementById('recordingStatus').textContent = '녹음 대기중...';
-    document.getElementById('audioPreview').classList.add('d-none');
-    audioChunks = [];
 }
 
 

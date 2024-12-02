@@ -41,6 +41,11 @@ const auth = {
         return true;
     },
 
+    getUserInfo() {
+        const username = this.getUsername();
+        return username ? `${username} ` : '';
+    },
+
     logout() {
         this.removeToken();
         this.removeUsername();
@@ -165,14 +170,59 @@ const passwordUtils = {
     }
 };
 
-// 모듈 내보내기
-export {
-    API_BASE_URL,
-    ADMIN_API_URL,
-    auth,
-    dateUtils,
-    htmlUtils,
-    uiUtils,
-    apiUtils,
-    passwordUtils
-};
+const mypage = () => {
+    window.location.href = '/dashboard.html';
+}
+
+
+// 인증 확인
+function checkAuth() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/';
+        return;
+    }
+    
+    // 사용자 정보 표시
+    const username = localStorage.getItem('username');
+    document.getElementById('username').textContent = username;
+}
+
+// 로그아웃
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    window.location.href = '/';
+}
+
+// 날짜 포맷 함수
+function formatKoreanDateTime(dateString) {
+    if (!dateString) return '날짜 정보 없음';
+    
+    try {
+        // 한국 시간대로 날짜 변환
+        const date = new Date(dateString);
+        
+        // 유효한 날짜인지 확인
+        if (isNaN(date.getTime())) {
+            return '유효하지 않은 날짜';
+        }
+        
+        // 한국 로케일 옵션 설정 (연, 월, 일, 시, 분까지 표기)
+        const options = {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        };
+        
+        // 한국어로 포맷팅
+        return new Intl.DateTimeFormat('ko-KR', options).format(date);
+    } catch (error) {
+        console.error('날짜 포맷 오류:', error);
+        return '날짜 형식 오류';
+    }
+}

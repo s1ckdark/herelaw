@@ -42,7 +42,8 @@ document.getElementById('login').addEventListener('submit', async (e) => {
         
         if (response.ok) {
             localStorage.setItem('token', data.token);
-            window.location.href = '/dashboard.html';
+            localStorage.setItem('username', username);
+            window.location.href = '/generate.html';
         } else {
             alert(`로그인 실패: ${data.message || '알 수 없는 오류가 발생했습니다.'}`);
         }

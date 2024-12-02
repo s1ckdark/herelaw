@@ -1,0 +1,173 @@
+.chat-actions {
+    display: flex;
+    gap: 3rem;
+    justify-content: center;
+    align-items: center;
+}
+
+.action-btn {
+    padding: 3rem;
+}
+
+/* 녹음 버튼 스타일 */
+#recordButton {
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+
+#recordButton i {
+    font-size: 24px;
+}
+
+#recordButton.recording {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% {
+        background-color: #dc3545;
+    }
+    50% {
+        background-color: #000;
+    }
+}
+
+#recordingTime {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+/* 오디오 플레이어 스타일 */
+audio {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.message {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 80%;
+    animation: fadeIn 0.3s ease;
+}
+
+.message.user {
+    margin-left: auto;
+    flex-direction: row-reverse;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.message-content {
+    background-color: #f8f9fa;
+    padding: 12px 16px;
+    border-radius: 12px;
+    position: relative;
+}
+
+.message.user .message-content {
+    background-color: #007bff;
+    color: white;
+}
+
+.message-text {
+    margin: 0;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.chat-input-container {
+    margin-top: 20px;
+    background-color: #dee2e6;
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.chat-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    resize: none;
+    padding: 8px;
+    font-size: 16px;
+    max-height: 200px;
+    background: transparent;
+}
+
+.consultation-section {
+    padding: 20px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#consultation-btn-section {
+    width: 100%;
+    gap: 20px;
+    justify-content: center;
+    align-items: center;
+}
+.consultation-section {
+    width: 100%;
+}
+.consultation-section > div {
+    margin-bottom: 20px;
+}
+.consultationText {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+}
+.consultation-section textarea {
+    width: 100%;
+    min-height: 400px;
+    padding: 2em;
+}
+#resultContentEdit {
+    width: 100%;
+    height: 100%;
+    min-height: 500px;
+    border: none;
+}
+
+.result-edit-actions, .result-actions {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+}

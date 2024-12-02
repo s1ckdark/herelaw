@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이혼 소장 생성기 - 대시보드</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/generate.css">
+    
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h3>HERELAW</h3>
+            <div class="user-info">
+                <button class="btn user-info-btn" onclick="mypage()"><span id="username"></span>&nbsp;님</button>
+                <button class="btn logout-btn" onclick="logout()">로그아웃</button>
+            </div>
+        </div>
+    </header>
+    <main class="main-content container">
+        <section class="consultation-btn-section">
+            <div class="chat-container">
+                <div class="chat-actions">
+                    <button onclick="handleVoiceRecording()" class="action-btn btn btn-lg">
+                        <i class="fas fa-microphone fa-lg"></i>
+                    </button>
+                    <button onclick="handleAudioFileUpload()" class="action-btn btn btn-lg">
+                        <i class="fas fa-paperclip fa-lg"></i>
+                    </button>
+                    <button onclick="startConsultation()" class="action-btn btn btn-lg">
+                        <i class="fas fa-paper-plane fa-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section id="consultation-section" class="consultation-section hidden">
+            <div class="consultationText">
+                <h3>상담 내용</h3>
+                 <textarea id="consultationText" class="consultationText" placeholder="상담 내용을 입력하세요."></textarea>
+                 <button onclick="startConsultation()" class="btn generate-document-btn">
+                     <i class="fas fa-file-alt"></i> 소장 생성
+                 </button>
+            </div>
+
+            <!-- <div class="summary-section">
+                <h3>상담 요약</h3>
+                <textarea id="conversationSummary" class="summary-textarea" readonly></textarea>
+            </div> -->
+        </section>
+        <!-- 생성된 소장 -->
+        <section class="complaint-section hidden" id="complaintSection">
+            <h2>생성된 소장</h2>
+            <div class="complaint-container-wrapper">
+                <textarea class="complaint-container" id="complaintContent" readonly></textarea>
+            </div>
+            <div class="complaint-actions">
+                <button 
+                    id="editComplaintBtn" 
+                    class="btn" 
+                    onclick="toggleComplaintEdit()"
+                >
+                    수정
+                </button>
+                <button 
+                    id="saveComplaintBtn" 
+                    class="btn" 
+                    onclick="saveComplaint()"
+                    style="display: none;"
+                >
+                    저장
+                </button>
+                <button class="btn" onclick="downloadComplaint()">다운로드</button>
+                <button class="btn" onclick="openRatingModal(currentSessionId)">평가</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="loadingModal" class="loading-modal hidden"></div>
+    <div class="modal fade" id="voiceModal" tabindex="-1" aria-labelledby="voiceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="voiceModalLabel">음성 녹음</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mt-3">
+                        <div class="tab-pane fade show active" id="recordTab">
+                            <div class="text-center">
+                                <div id="recordingStatus" class="mb-3">녹음 대기중...</div>
+                                <button id="recordButton" class="btn btn-primary rounded-circle">
+                                    <i class="fas fa-microphone"></i>
+                                </button>
+                                <div id="recordingTime" class="mt-2">00:00</div>
+                            </div>
+                            <div id="audioPreview" class="mt-3 d-none">
+                                <audio id="recordedAudio" controls class="w-100"></audio>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" id="saveVoiceButton">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="uploadModalLabel">음성 파일 업로드</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="audioFileInput" class="form-label">음성 파일 선택</label>
+                        <input type="file" class="form-control" id="audioFileInput" accept="audio/*">
+                    </div>
+                    <div id="uploadStatus" class="text-muted"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" id="uploadAudioButton" disabled>업로드</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="resultModalLabel">상담 결과</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <h6>소장 내용:</h6>
+                    <div id="resultContent"></div>
+                    <textarea id="resultContentEdit" class="hidden"></textarea>
+                    <!-- <h6>요약:</h6>
+                    <div id="resultSummary"></div> -->
+                </div>
+                <div class="modal-footer">
+                    <div class="result-actions">
+                        <button type="button" class="btn btn-primary" id="resultDownloadBtn" onclick="downloadComplaint()">DOWNLOAD</button>
+                        <button type="button" class="btn btn-primary" id="resultCopy" onClick="copyToClipboard()">Copy</button>
+                        <button type="button" class="btn btn-primary" id="resultEditBtn" onclick="toggleComplaintEdit()">수정</button>
+                    </div>
+                    <div class="result-edit-actions hidden">
+                        <button type="button" class="btn btn-primary" id="resultSaveBtn" onclick="saveComplaint()">저장</button>
+                        <button type="button" class="btn btn-primary" id="resultCancelBtn" onclick="cancelEdit()">취소</button>
+                    </div>
+                     <div class="error-message hidden"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/common.js"></script>
+    <script src="js/generate.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
