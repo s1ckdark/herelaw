@@ -30,18 +30,17 @@
                     <button onclick="handleAudioFileUpload()" class="action-btn btn btn-lg">
                         <i class="fas fa-paperclip fa-lg"></i>
                     </button>
-                    <button onclick="startConsultation()" class="action-btn btn btn-lg">
+                    <button onclick="handleText()" class="action-btn btn btn-lg">
                         <i class="fas fa-paper-plane fa-lg"></i>
                     </button>
                 </div>
             </div>
         </section>
-
         <section id="consultation-section" class="consultation-section hidden">
             <div class="consultationText">
                 <h3>상담 내용</h3>
                  <textarea id="consultationText" class="consultationText" placeholder="상담 내용을 입력하세요."></textarea>
-                 <button onclick="startConsultation()" class="btn generate-document-btn">
+                 <button class="btn generate-document-btn" onclick="startConsultation()">
                      <i class="fas fa-file-alt"></i> 소장 생성
                  </button>
             </div>

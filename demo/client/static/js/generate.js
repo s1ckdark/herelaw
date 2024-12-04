@@ -88,18 +88,20 @@ async function saveComplaint() {
     }
 }
 
-// 상담 시작 함수 수정
-async function startConsultation() {
-    const consultationSection = document.getElementById('consultation-section');
-    const consultationText = document.getElementById('consultationText');
-    const mainContent = document.querySelector('.main-content');
-    consultationSection.classList.remove('hidden');
+function handleText() {
+    const mainContent = document.querySelector('.main-content')
+    const consultationSection = document.getElementById('consultation-section')
+    consultationSection.classList.toggle('hidden');
     mainContent.classList.add('generate');
-    
-    if(consultationText.value.trim() === '') return;
+}
 
+// 상담 시작 함수 수정
+async function startConsultation(){
+    const consultationText = document.getElementById('consultationText');
+
+    if(consultationText.value.trim() === '') return;
     const text = consultationText.value.trim();
-    
+
     // 로딩 컨테이너 생성
     const loadingContainer = document.createElement('div');
     loadingContainer.className = 'loading-container';
@@ -174,7 +176,7 @@ async function startConsultation() {
         // Bootstrap 모달 인스턴스 생성
         const resultModal = new bootstrap.Modal(resultModalElement);
         
-        if (resultContent && resultSummary) {
+        if (resultContent) {
             // 내용 설정
             resultContent.innerHTML = data.complaint
                 .replace(/\n\n/g, '</p><p>')
@@ -300,32 +302,28 @@ function toggleComplaintEdit() {
 
 // 음성 녹음 초기화
 function initializeVoiceRecording() {
-    const canvas = document.getElementById('waveformCanvas');
-    const startRecordingBtn = document.getElementById('startRecordingBtn');
+    const recordButton = document.getElementById('recordButton');
     const recordingResult = document.getElementById('recordingResult');
     const playPauseBtn = document.getElementById('playPauseBtn');
     const progressBar = document.getElementById('progressBar');
     const currentTimeSpan = document.getElementById('currentTime');
     const totalTimeSpan = document.getElementById('totalTime');
     const downloadRecordingBtn = document.getElementById('downloadRecordingBtn');
-    const generateTextBtn = document.getElementById('generateTextBtn');
+    const generateDocumentBtn = document.getElementById('generateDocumentBtn');
     const consultationText = document.getElementById('consultationText');
 
     let audioPlayer = null;
 
-    // 캔버스 초기화
-    const canvasCtx = canvas.getContext('2d');
-    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
     // 버튼 상태 초기화
     function resetButtonStates() {
-        startRecordingBtn.textContent = '녹음 시작';
-        startRecordingBtn.classList.remove('recording');
+        recordButton.textContent = '녹음 시작';
+        recordButton.classList.remove('recording');
         recordingResult.classList.add('hidden');
     }
 
     // 녹음 시작 버튼 이벤트
-    startRecordingBtn.onclick = async () => {
+    recordButton.onclick = async () => {
         try {
             if (!isRecording) {
                 // 녹음 시작
@@ -383,8 +381,8 @@ function initializeVoiceRecording() {
                 };
                 
                 mediaRecorder.start();
-                startRecordingBtn.textContent = '녹음 종료';
-                startRecordingBtn.classList.add('recording');
+                recordButton.textContent = '녹음 종료';
+                recordButton.classList.add('recording');
                 isRecording = true;
                 
                 // 파형 시각화
@@ -393,8 +391,8 @@ function initializeVoiceRecording() {
                 // 녹음 종료
                 mediaRecorder.stop();
                 audioStream.getTracks().forEach(track => track.stop());
-                startRecordingBtn.textContent = '녹음 시작';
-                startRecordingBtn.classList.remove('recording');
+                recordButton.textContent = '녹음 시작';
+                recordButton.classList.remove('recording');
             }
         } catch (error) {
             console.error('녹음 시작/종료 오류:', error);
@@ -404,18 +402,18 @@ function initializeVoiceRecording() {
     };
 
     // 다운로드 버튼 이벤트
-    downloadRecordingBtn.onclick = () => {
-        if (audioBlob) {
-            const audioURL = URL.createObjectURL(audioBlob);
-            const a = document.createElement('a');
-            a.href = audioURL;
-            a.download = 'recording.wav';
-            a.click();
-        }
-    };
+    // downloadRecordingBtn.onclick = () => {
+    //     if (audioBlob) {
+    //         const audioURL = URL.createObjectURL(audioBlob);
+    //         const a = document.createElement('a');
+    //         a.href = audioURL;
+    //         a.download = 'recording.wav';
+    //         a.click();
+    //     }
+    // };
 
     // 텍스트 생성 버튼 이벤트
-    generateTextBtn.onclick = async () => {
+    generateDocumentBtn.onclick = async () => {
         if (audioBlob) {
             const formData = new FormData();
             formData.append('audio', audioBlob, 'recording.wav');
@@ -453,6 +451,30 @@ function initializeVoiceRecording() {
         }
     });
 }
+
+async function generateDocument() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/upload-audio`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: formData
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            document.getElementById('consultationText').value = result.text;
+            alert('음성이 텍스트로 성공적으로 변환되었습니다.');
+        } else {
+            const error = await response.json();
+            alert(`텍스트 변환 오류: ${error.error}`);
+        }
+    } catch (error) {
+        console.error('텍스트 생성 오류:', error);
+        alert('텍스트 생성 중 오류가 발생했습니다.');
+    }
+};
 
 // 오디오 플레이어 초기화
 function initializeAudioPlayer(audioBlob) {
@@ -549,124 +571,13 @@ function handleRecordingStop(audioBlob) {
     };
 }
 
-// 요약 생성
-async function summarizeTranscription(transcription) {
-    try {
-        const response = await fetch('/summarize-text', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                text: transcription,
-                model: 'gpt-4'
-            })
-        });
 
-        if (!response.ok) {
-            throw new Error('Summarization failed');
-        }
-
-        const data = await response.json();
-        return data.summary;
-    } catch (error) {
-        console.error('Error summarizing text:', error);
-        return '요약 중 오류가 발생했습니다.';
-    }
+function startNewSession() {
+    // Clear any existing session data
+    currentSessionId = null;
+    selectedRating = 0;
 }
 
-// 파형 그리기
-function drawWaveform(audioBuffer) {
-    const canvas = document.getElementById('waveformCanvas');
-    const canvasWidth = canvas.offsetWidth;
-    const canvasHeight = canvas.height;
-    
-    const ctx = canvas.getContext('2d');
-    
-    // Clear previous drawing
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    
-    const channelData = audioBuffer.getChannelData(0);
-    const step = Math.ceil(channelData.length / canvasWidth);
-    
-    // Calculate max amplitude to normalize waveform
-    let maxAmplitude = 0;
-    for (let i = 0; i < channelData.length; i++) {
-        maxAmplitude = Math.max(maxAmplitude, Math.abs(channelData[i]));
-    }
-    
-    // Vertical centering variables
-    const midY = canvasHeight / 2;
-    const drawHeight = canvasHeight / 2; // Use half the canvas height for drawing
-    
-    ctx.beginPath();
-    ctx.moveTo(0, midY);
-    
-    for (let x = 0; x < canvasWidth; x++) {
-        let min = 0;
-        let max = 0;
-        
-        for (let j = 0; j < step; j++) {
-            const index = Math.floor((x * step + j) * channelData.length / canvasWidth);
-            if (index < channelData.length) {
-                const datum = channelData[index];
-                if (datum < min) min = datum;
-                if (datum > max) max = datum;
-            }
-        }
-        
-        // Normalize and scale
-        const normalizedMin = (min / maxAmplitude) * drawHeight;
-        const normalizedMax = (max / maxAmplitude) * drawHeight;
-        
-        // Draw waveform centered
-        ctx.lineTo(x, midY - normalizedMin);
-        ctx.lineTo(x, midY - normalizedMax);
-    }
-    
-    ctx.strokeStyle = '#4CAF50';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-}
-
-// 상담 내역 요약 및 정리 함수
-async function summarizeConsultation() {
-    const consultationText = document.getElementById('consultationText');
-    const conversationSummary = document.getElementById('conversationSummary');
-        
-    try {
-        const response = await fetch(`${API_BASE_URL}/summarize-consultation`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                text: consultationText.value,
-                model: 'gpt-4o-mini'
-            })
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || '상담 내역 요약 실패');
-        }
-        
-        const data = await response.json();
-        
-        // 요약된 내용을 textarea에 표시
-        conversationSummary.value = data.summary || '요약을 생성할 수 없습니다.';
-        
-        // 세션 ID 저장 (필요한 경우)
-        if (data.session_id) {
-            localStorage.setItem('lastSummarySessionId', data.session_id);
-        }
-        
-    } catch (error) {
-        console.error('상담 내역 요약 오류:', error);
-        alert(error.message || '상담 내역을 요약하는 중 오류가 발생했습니다.');
-    }
-}
 
 // 음성 녹음 모달 관련 함수들
 function handleVoiceRecording() {
@@ -907,6 +818,23 @@ function copyToClipboard() {
     const textToCopy = document.getElementById('resultContent').innerText;
     navigator.clipboard.writeText(textToCopy);
     alert('클립보드에 복사되었습니다.');
+}
+
+function initializeAutoResize() {
+    const textarea = document.getElementById('consultationText');
+    
+    textarea.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+    });
+    
+    // Enter 키로 전송
+    textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            startConsultation();
+        }
+    });
 }
 
 // 페이지 로드 시 초기화
