@@ -85,15 +85,21 @@ body {
 .header {
     background-color: #333;
     color: white;
-    padding: 1rem;
-    height: 5rem;
+    padding: 0 1rem;
+    height: 50px;
     width: 100%;
-
 }
 .header > .container {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+.header a {
+    color: white;
+    text-decoration: none;
+}
+.header h3 {
+    margin: 0;
 }
 
 .main-content {
@@ -117,12 +123,10 @@ body {
 }
 .logout-btn {
     background-color: transparent;
-    border: 1px solid white;
 }
-
 .logout-btn:hover {
-    background-color: white;
-    color: #333;
+    background-color: transparent;
+    color: #fff;
 }
 
 /* 메인 콘텐츠 레이아웃 */

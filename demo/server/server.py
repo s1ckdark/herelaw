@@ -778,6 +778,7 @@ def get_session_details(session_id):
             'summary': session.get('summary', ''),
             'consultation_text': session.get('consultation_text', []),
             'complaint': session.get('generated_content', ''),
+            'title': session.get('title', ''),
             'rating': session.get('rating')
         }
         
@@ -921,7 +922,7 @@ def generate_complaint():
         print(f"서버 오류: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/feedback', methods=['POST'])
+@app.route('/api/rating', methods=['POST'])
 @jwt_required()
 def save_feedback():
     """피드백을 저장하는 엔드포인트"""
@@ -939,7 +940,6 @@ def save_feedback():
         session_id = data['session_id']
         complaint = data['complaint']
         rating = float(data['rating'])
-        feedback_text = data.get('feedback', '')
 
         print(f"피드백 저장 요청 받음: session_id={session_id}, rating={rating}")
 
@@ -948,7 +948,6 @@ def save_feedback():
             "session_id": session_id,
             "complaint": complaint,
             "rating": rating,
-            "feedback": feedback_text,
             "created_at": datetime.utcnow()
         }
 
@@ -959,7 +958,6 @@ def save_feedback():
         mongodb_manager.update_session(
             session_id=session_id,
             rating=rating,
-            feedback=feedback_text
         )
 
         print(f"피드백 저장 성공: feedback_id={feedback_id}")
@@ -1301,6 +1299,7 @@ def update_complaint():
         
         updated_complaint = data['complaint']
         session_id = data.get('session_id')
+
         
         # 세션 ID가 제공된 경우 해당 세션 업데이트
         if session_id:
@@ -1387,6 +1386,49 @@ def start_consultation():
     except Exception as e:
         print(f"상담 시작 중 오류 발생: {str(e)}")
         return jsonify({"error": "상담 시작 중 오류가 발생했습니다.", "details": str(e)}), 500
+
+@app.route('/api/download-complaint', methods=['POST'])
+@jwt_required()
+def download_complaint():
+    """
+    소장 내용을 DOCX 형식으로 변환하여 다운로드합니다.
+    
+    요청 본문 예시:
+    {
+        "complaint": "소장 내용"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'complaint' not in data:
+            return jsonify({"error": "소장 내용이 제공되지 않았습니다."}), 400
+            
+        complaint_text = data['complaint']
+        
+        # DOCX 파일 생성
+        doc = Document()
+        
+        # 제목 추가
+        doc.add_heading('이혼소장', 0)
+        
+        # 본문 추가
+        doc.add_paragraph(complaint_text)
+        
+        # 메모리에 DOCX 파일 저장
+        docx_file = BytesIO()
+        doc.save(docx_file)
+        docx_file.seek(0)
+        
+        return send_file(
+            docx_file,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            as_attachment=True,
+            download_name=f'이혼소장_{datetime.now().strftime("%Y-%m-%d")}.docx'
+        )
+        
+    except Exception as e:
+        print(f"DOCX 파일 생성 중 오류: {str(e)}")
+        return jsonify({"error": "문서 생성 중 오류가 발생했습니다."}), 500
 
 def convert_audio_to_wav(input_file):
     """

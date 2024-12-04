@@ -6,6 +6,54 @@
     padding: 2rem;
 }
 
+/* 소장 섹션 */
+.complaintContent {
+    position: relative;
+    width: calc(100% - 320px);
+    height: calc(100vh - 140px);
+    background-color: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 소장 헤더 스타일 */
+.complaint-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.complaint-header h2 {
+    margin: 0;
+}
+
+.session-details {
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    justify-items: baseline;
+}
+
+.complaint-actions {
+    width: calc(100% - 4rem);
+    position: absolute;
+    bottom: 20px;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.complaintEditTextarea {
+    height: calc(100vh - 300px);
+    width: 100%;
+    border: none;
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 16px;
+}
+
 /* 사이드바 */
 .session-sidebar {
     width: 300px;
@@ -33,6 +81,20 @@
     border-bottom: none;
 }
 .session-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.session-header:hover {
+    background-color: #f8f9fa;
+}
+
+.session-info {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -88,33 +150,51 @@
     background-color: #0056b3;
 }
 
-/* 상담 입력 영역 */
-.complaintContent {
-    width: calc(100% - 320px);
-    height: calc(100vh - 140px);
-    background-color: white;
-    padding: 2rem;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-.session-details {
-    margin-bottom: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    justify-items: baseline;
-}
-
-.complaint-actions {
+/* 평가 버튼 스타일 */
+.rating-buttons {
     display: flex;
     gap: 0.5rem;
 }
 
-.complaintEditTextarea {
-    height: calc(100vh - 300px);
-    width: 100%;
-    border: none;
-    border-radius: 5px;
-    padding: 10px;
-    font-size: 16px;
+.rating-buttons button {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    transition: all 0.3s ease;
+}
+
+.rating-buttons button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.rating-buttons button.selected {
+    transform: scale(1.05);
+}
+
+.rating-buttons button.btn-outline-success:hover {
+    background-color: #198754;
+    color: white;
+}
+
+.rating-buttons button.btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+/* Rating 버튼 스타일 */
+.rating-buttons button.active {
+    background-color: #4CAF50;
+    color: white;
+    border-color: #4CAF50;
+    pointer-events: none;
+}
+
+.rating-buttons button.active.bad {
+    background-color: #f44336;
+    border-color: #f44336;
+}
+
+.rating-buttons button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }

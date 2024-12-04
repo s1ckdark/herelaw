@@ -226,3 +226,12 @@ function formatKoreanDateTime(dateString) {
         return '날짜 형식 오류';
     }
 }
+
+// 소장 내용을 줄바꿈과 함께 포맷팅
+function htmlToText(html) {
+    return html
+        .replace(/<\/p><p>/g, '\n\n')  // 문단 구분을 두 줄바꿈으로
+        .replace(/<br\s*\/?>/g, '\n')   // <br> 태그를 줄바꿈으로
+        .replace(/<[^>]*>/g, '')        // 나머지 HTML 태그 제거
+        .trim();
+}

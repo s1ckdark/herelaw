@@ -1,6 +1,3 @@
-// API 엔드포인트
-const API_BASE_URL = 'http://localhost:5000/api';
-
 // 폼 전환 함수
 function toggleForm(formType) {
     const loginForm = document.getElementById('loginForm');
@@ -87,4 +84,17 @@ document.getElementById('signup').addEventListener('submit', async (e) => {
         alert('회원가입 중 오류가 발생했습니다.');
         console.error('Error:', error);
     }
+});
+
+// 인증 확인
+function checkAuth() {
+    const token = localStorage.getItem('token');
+    if (token) {
+        window.location.href = '/generate.html';
+        return;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuth();
 });

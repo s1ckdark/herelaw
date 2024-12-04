@@ -7,6 +7,10 @@ let recordingTimer = null, recordingDuration = 0, audioContext, analyser, mediaR
 let isRecording = false;
 let audioStream = null;
 
+// 평가 관련 변수
+let currentRating = null;
+let isRatingSubmitted = false;
+
 // 시간 포맷 함수 (전역 함수로 정의)
 function formatTime(seconds) {
     if (isNaN(seconds) || seconds < 0) return '0:00';
@@ -92,7 +96,7 @@ function handleText() {
     const mainContent = document.querySelector('.main-content')
     const consultationSection = document.getElementById('consultation-section')
     consultationSection.classList.toggle('hidden');
-    mainContent.classList.add('generate');
+    mainContent.classList.toggle('generate');
 }
 
 // 상담 시작 함수 수정
@@ -145,7 +149,7 @@ async function startConsultation(){
             },
             body: JSON.stringify({
                 user_input: text,
-                model: 'gpt-4o-mini'
+                model: 'gpt-4o'
             })
         });
 
@@ -238,24 +242,24 @@ async function startConsultation(){
 
 
 // 소장 저장
-function saveComplaint() {
-    const editTextarea = document.querySelector('.complaint-edit-textarea');
-    const complaintContent = document.querySelector('.complaint-content');
+// function saveComplaint() {
+//     const editTextarea = document.querySelector('.complaint-edit-textarea');
+//     const complaintContent = document.querySelector('.complaint-content');
     
-    const formattedText = editTextarea.value
-        .replace(/\n\n/g, '</p><p>')  // 문단 구분
-        .replace(/\n/g, '<br>');  // 줄바꿈 처리
+//     const formattedText = editTextarea.value
+//         .replace(/\n\n/g, '</p><p>')  // 문단 구분
+//         .replace(/\n/g, '<br>');  // 줄바꿈 처리
     
-    complaintContent.innerHTML = `<p>${formattedText}</p>`;
+//     complaintContent.innerHTML = `<p>${formattedText}</p>`;
     
-    // 원래 액션 버튼 복원
-    const actionButtons = document.querySelector('.complaint-actions');
-    actionButtons.innerHTML = `
-        <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
-        <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
-        <button class="btn rate-btn" onclick="openRatingModal(currentSessionId)">소장 평가하기</button>
-    `;
-}
+//     // 원래 액션 버튼 복원
+//     const actionButtons = document.querySelector('.complaint-actions');
+//     actionButtons.innerHTML = `
+//         <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
+//         <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
+//         <button class="btn rate-btn" onclick="openRatingModal(currentSessionId)">소장 평가하기</button>
+//     `;
+// }
 
 // 수정 취소
 function cancelEdit() {
@@ -805,7 +809,7 @@ function saveVoiceData() {
     }
 }
 
-// 모달 ���기화
+// 모달 초기화
 function resetVoiceModal() {
     stopRecordingTimer();
     document.getElementById('recordingTime').textContent = '00:00';
@@ -837,6 +841,101 @@ function initializeAutoResize() {
     });
 }
 
+// 평가 모달 열기
+function openRatingModal(sessionId) {
+    currentSessionId = sessionId;
+    isRatingSubmitted = false;
+    resetRatingModal();
+    
+    // 이전 평가 데이터 불러오기
+    checkPreviousRating(sessionId);
+    
+    const ratingModal = new bootstrap.Modal(document.getElementById('ratingModal'));
+    ratingModal.show();
+}
+
+// 이전 평가 확인
+async function checkPreviousRating(sessionId) {
+    try {
+        const response = await fetch(`/api/get_rating/${sessionId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.rating) {
+                currentRating = data.rating;
+                isRatingSubmitted = true;
+                updateRatingUI(data.rating);
+            }
+        }
+    } catch (error) {
+        console.error('평가 데이터 로딩 실패:', error);
+    }
+}
+
+// 평가 제출
+async function submitRating(rating) {
+    if (isRatingSubmitted) return;
+    
+    const feedback = document.getElementById('ratingFeedback').value;
+    
+    try {
+        const response = await fetch('/api/submit_rating', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                session_id: currentSessionId,
+                rating: rating,
+                feedback: feedback
+            })
+        });
+        
+        if (response.ok) {
+            isRatingSubmitted = true;
+            currentRating = rating;
+            updateRatingUI(rating);
+            document.querySelector('.rating-status').textContent = '평가가 제출되었습니다.';
+        } else {
+            throw new Error('평가 제출 실패');
+        }
+    } catch (error) {
+        console.error('평가 제출 오류:', error);
+        alert('평가 제출 중 오류가 발생했습니다.');
+    }
+}
+
+// 평가 UI 업데이트
+function updateRatingUI(rating) {
+    const goodBtn = document.getElementById('goodRatingBtn');
+    const badBtn = document.getElementById('badRatingBtn');
+    
+    goodBtn.disabled = isRatingSubmitted;
+    badBtn.disabled = isRatingSubmitted;
+    
+    if (rating === 'good') {
+        goodBtn.classList.add('selected');
+        badBtn.classList.remove('selected');
+    } else if (rating === 'bad') {
+        badBtn.classList.add('selected');
+        goodBtn.classList.remove('selected');
+    }
+}
+
+// 평가 모달 초기화
+function resetRatingModal() {
+    document.getElementById('ratingFeedback').value = '';
+    document.querySelector('.rating-status').textContent = '';
+    document.getElementById('goodRatingBtn').classList.remove('selected');
+    document.getElementById('badRatingBtn').classList.remove('selected');
+    updateRatingUI(null);
+}
+
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
@@ -847,18 +946,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('recordButton')) {
         initializeVoiceRecording();
     }
-    
     // 녹음 버튼 이벤트
     document.getElementById('recordButton').addEventListener('click', toggleRecording);
-    
     // 파일 업로드 이벤트
     document.getElementById('audioFileInput').addEventListener('change', handleAudioFileUpload);
-    
     // 저장 버튼 이벤트
-    document.getElementById('saveVoiceButton').addEventListener('click', saveVoiceData);
-    
+    document.getElementById('saveVoiceButton').addEventListener('click', saveVoiceData);    
     // 모달 닫힐 때 초기화
     document.getElementById('voiceModal').addEventListener('hidden.bs.modal', resetVoiceModal);
-    
     initializeAutoResize();
 });

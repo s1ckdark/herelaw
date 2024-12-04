@@ -33,9 +33,19 @@
 
         <!-- 생성된 소장 -->
         <section class="complaintContent hidden" id="complaintContent">
-            <h2>생성된 소장</h2>
+            <div class="complaint-header">
+                <h2>생성된 소장</h2>
+                <div class="rating-buttons">
+                    <button id="goodRatingBtn" class="btn btn-outline-success" onclick="submitRating('good')">
+                        <i class="fas fa-thumbs-up"></i>
+                    </button>
+                    <button id="badRatingBtn" class="btn btn-outline-danger" onclick="submitRating('bad')">
+                        <i class="fas fa-thumbs-down"></i>
+                    </button>
+                </div>
+            </div>
             <div id="complaintResult"></div>
-            <textarea class="complaintEditTextarea" id="complaintEditTextarea"></textarea>
+            <textarea class="complaintEditTextarea hidden" id="complaintEditTextarea"></textarea>
             <div class="complaint-actions">
                 <button 
                     id="editComplaintBtn" 
@@ -53,7 +63,6 @@
                     저장
                 </button>
                 <button class="btn" onclick="downloadComplaint()">다운로드</button>
-                <button class="btn" onclick="openRatingModal(currentSessionId)">평가</button>
             </div>
         </section>
     </main>
