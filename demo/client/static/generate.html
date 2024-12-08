@@ -31,55 +31,25 @@
                         <i class="fas fa-paperclip fa-lg"></i>
                     </button>
                     <button onclick="handleText()" class="action-btn btn btn-lg">
-                        <i class="fas fa-paper-plane fa-lg"></i>
+                        <i class="fas fa-file-alt fa-lg"></i>
                     </button>
                 </div>
             </div>
         </section>
-        <section id="consultation-section" class="consultation-section hidden">
+        <section id="consultationSection" class="consultationSection hidden">
             <div class="consultationText">
                 <h3>상담 내용</h3>
                  <textarea id="consultationText" class="consultationText" placeholder="상담 내용을 입력하세요."></textarea>
                  <button class="btn generate-document-btn" onclick="startConsultation()">
-                     <i class="fas fa-file-alt"></i> 소장 생성
+                     <i class="fas fa-play fa-lg"></i> 소장 생성
                  </button>
             </div>
 
-            <!-- <div class="summary-section">
-                <h3>상담 요약</h3>
-                <textarea id="conversationSummary" class="summary-textarea" readonly></textarea>
-            </div> -->
-        </section>
-        <!-- 생성된 소장 -->
-        <section class="complaint-section hidden" id="complaintSection">
-            <h2>생성된 소장</h2>
-            <div class="complaint-container-wrapper">
-                <textarea class="complaint-container" id="complaintContent" readonly></textarea>
-            </div>
-            <div class="complaint-actions">
-                <button 
-                    id="editComplaintBtn" 
-                    class="btn" 
-                    onclick="toggleComplaintEdit()"
-                >
-                    수정
-                </button>
-                <button 
-                    id="saveComplaintBtn" 
-                    class="btn" 
-                    onclick="saveComplaint()"
-                    style="display: none;"
-                >
-                    저장
-                </button>
-                <button class="btn" onclick="downloadComplaint()">다운로드</button>
-                <button class="btn" onclick="openRatingModal(currentSessionId)">평가</button>
-            </div>
         </section>
     </main>
 
     <div id="loadingModal" class="loading-modal hidden"></div>
-    <div class="modal fade" id="voiceModal" tabindex="-1" aria-labelledby="voiceModalLabel" aria-hidden="true">
+    <div class="modal fade" id="voiceModal" tabindex="-1" aria-labelledby="voiceModalLabel" role="dialog">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
@@ -90,11 +60,14 @@
                     <div class="mt-3">
                         <div class="tab-pane fade show active" id="recordTab">
                             <div class="text-center">
-                                <div id="recordingStatus" class="mb-3">녹음 대기중...</div>
+                                <div id="recordingStatus" class="mb-3">녹음 중...</div>
                                 <button id="recordButton" class="btn btn-primary rounded-circle">
                                     <i class="fas fa-microphone"></i>
                                 </button>
                                 <div id="recordingTime" class="mt-2">00:00</div>
+                            </div>
+                            <div id="waveform" class="mt-3 d-none">
+                                <canvas id="waveformCanvas" class="w-100"></canvas>
                             </div>
                             <div id="audioPreview" class="mt-3 d-none">
                                 <audio id="recordedAudio" controls class="w-100"></audio>
@@ -110,7 +83,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" role="dialog">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
@@ -132,8 +105,8 @@
         </div>
     </div>
 
-    <div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
+    <div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" role="dialog">
+        <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="resultModalLabel">상담 결과</h5>

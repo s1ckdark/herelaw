@@ -1,6 +1,7 @@
 // API 엔드포인트 설정
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = window.location.protocol === 'https:' ? 'https://localhost:5000/api' : 'http://localhost:5000/api';
 const ADMIN_API_URL = `${API_BASE_URL}/admin`;
+const wsUrl = window.location.protocol === 'https:' ? 'wss://localhost:5000/api' : 'ws://localhost:5000/api';
 
 // 인증 관련 유틸리티
 const auth = {

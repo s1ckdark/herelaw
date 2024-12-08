@@ -128,10 +128,6 @@ audio {
     background: transparent;
 }
 
-.consultation-section {
-    padding: 20px;
-}
-
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -143,10 +139,11 @@ audio {
     justify-content: center;
     align-items: center;
 }
-.consultation-section {
+.consultationSection {
     width: 100%;
+    padding: 20px;
 }
-.consultation-section > div {
+.consultationSection > div {
     margin-bottom: 20px;
 }
 .consultationText {
@@ -154,7 +151,7 @@ audio {
     height: 100%;
     min-height: 400px;
 }
-.consultation-section textarea {
+.consultationSection textarea {
     width: 100%;
     min-height: 400px;
     padding: 2em;
@@ -281,4 +278,12 @@ audio {
 #ratingFeedback {
     min-height: 100px;
     resize: vertical;
+}
+
+#waveform {
+    margin-top: 20px;
+}
+#waveformCanvas {
+    max-width: 100%;
+    height: auto;
 }

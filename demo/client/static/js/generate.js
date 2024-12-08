@@ -3,13 +3,16 @@
 let currentSessionId = null;
 
 // 음성 녹음 관련 전역 변수
-let recordingTimer = null, recordingDuration = 0, audioContext, analyser, mediaRecorder = null, audioChunks = [], audioBlob = null;
+let recordingTimer = null, recordingDuration = 0, audioContext, analyser, animationId = null, mediaRecorder = null, audioChunks = [], audioBlob = null;
 let isRecording = false;
 let audioStream = null;
 
 // 평가 관련 변수
 let currentRating = null;
 let isRatingSubmitted = false;
+
+// WebSocket 변수
+let ws = null;
 
 // 시간 포맷 함수 (전역 함수로 정의)
 function formatTime(seconds) {
@@ -19,6 +22,17 @@ function formatTime(seconds) {
     const secs = Math.floor(seconds % 60);
     
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function resetText() {
+    const consultationSection = document.getElementById('consultationSection');
+    if(!consultationSection) return;
+    if(consultationSection.classList.contains('hidden')) return;
+    const mainContent = document.querySelector('.main-content')
+    mainContent.classList.toggle('generate');
+    consultationSection.classList.toggle('hidden');
+    const consultationText = document.getElementById('consultationText');
+    consultationText.value = '';
 }
 
 // 소장 수정 모드 토글 함수
@@ -46,61 +60,15 @@ function toggleComplaintEdit() {
     }
 }
 
-// 소장 저장 함수
-async function saveComplaint() {
-    const complaintContainer = document.getElementById('complaintContent');
-    const complaintTextarea = document.getElementById('complaintEditTextarea');
-    const editComplaintBtn = document.getElementById('editComplaintBtn');
-    const saveComplaintBtn = document.getElementById('saveComplaintBtn');
-
-    // 수정된 내용 가져오기
-    const updatedComplaint = complaintTextarea.value.trim();
-
-    try {
-        // 서버에 소장 업데이트 요청
-        const response = await fetch('/api/update_complaint', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                complaint: updatedComplaint,
-                session_id: localStorage.getItem('lastSummarySessionId')
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || '소장 수정 실패');
-        }
-
-        // UI 업데이트
-        complaintContainer.innerText = updatedComplaint;
-        complaintTextarea.style.display = 'none';
-        complaintContainer.style.display = 'block';
-        
-        editComplaintBtn.textContent = '수정';
-        saveComplaintBtn.style.display = 'none';
-        
-        complaintTextarea.removeAttribute('data-edit-mode');
-
-        alert('소장이 성공적으로 수정되었습니다.');
-    } catch (error) {
-        console.error('소장 수정 오류:', error);
-        alert(error.message || '소장 수정 중 오류가 발생했습니다.');
-    }
-}
-
 function handleText() {
     const mainContent = document.querySelector('.main-content')
-    const consultationSection = document.getElementById('consultation-section')
+    const consultationSection = document.getElementById('consultationSection')
     consultationSection.classList.toggle('hidden');
     mainContent.classList.toggle('generate');
 }
 
 // 상담 시작 함수 수정
-async function startConsultation(){
+async function startConsultation() {
     const consultationText = document.getElementById('consultationText');
 
     if(consultationText.value.trim() === '') return;
@@ -148,8 +116,7 @@ async function startConsultation(){
                 'Authorization': `Bearer ${localStorage.getItem('token')}`
             },
             body: JSON.stringify({
-                user_input: text,
-                model: 'gpt-4o'
+                user_input: consultationText.value.trim()
             })
         });
 
@@ -240,26 +207,51 @@ async function startConsultation(){
     }
 }
 
+// 소장 저장 함수
+async function saveComplaint() {
+    const complaintContainer = document.getElementById('complaintContent');
+    const complaintTextarea = document.getElementById('complaintEditTextarea');
+    const editComplaintBtn = document.getElementById('editComplaintBtn');
+    const saveComplaintBtn = document.getElementById('saveComplaintBtn');
 
-// 소장 저장
-// function saveComplaint() {
-//     const editTextarea = document.querySelector('.complaint-edit-textarea');
-//     const complaintContent = document.querySelector('.complaint-content');
-    
-//     const formattedText = editTextarea.value
-//         .replace(/\n\n/g, '</p><p>')  // 문단 구분
-//         .replace(/\n/g, '<br>');  // 줄바꿈 처리
-    
-//     complaintContent.innerHTML = `<p>${formattedText}</p>`;
-    
-//     // 원래 액션 버튼 복원
-//     const actionButtons = document.querySelector('.complaint-actions');
-//     actionButtons.innerHTML = `
-//         <button class="btn edit-btn" onclick="editComplaint()">소장 수정하기</button>
-//         <button class="btn download-btn" onclick="downloadComplaint()">워드로 다운받기</button>
-//         <button class="btn rate-btn" onclick="openRatingModal(currentSessionId)">소장 평가하기</button>
-//     `;
-// }
+    // 수정된 내용 가져오기
+    const updatedComplaint = complaintTextarea.value.trim();
+
+    try {
+        // 서버에 소장 업데이트 요청
+        const response = await fetch('/api/update_complaint', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                complaint: updatedComplaint,
+                session_id: localStorage.getItem('lastSummarySessionId')
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '소장 수정 실패');
+        }
+
+        // UI 업데이트
+        complaintContainer.innerText = updatedComplaint;
+        complaintTextarea.style.display = 'none';
+        complaintContainer.style.display = 'block';
+        
+        editComplaintBtn.textContent = '수정';
+        saveComplaintBtn.style.display = 'none';
+        
+        complaintTextarea.removeAttribute('data-edit-mode');
+
+        alert('소장이 성공적으로 수정되었습니다.');
+    } catch (error) {
+        console.error('소장 수정 오류:', error);
+        alert(error.message || '소장 수정 중 오류가 발생했습니다.');
+    }
+}
 
 // 수정 취소
 function cancelEdit() {
@@ -304,8 +296,73 @@ function toggleComplaintEdit() {
     resultActions.classList.toggle('hidden');
 }
 
+function visualizeStream(stream) {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const waveform = document.getElementById('waveform');
+    waveform.classList.remove('d-none');
+    const canvas = document.getElementById('waveformCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    function draw() {
+        animationId = requestAnimationFrame(draw);
+        
+        analyser.getByteTimeDomainData(dataArray);
+        
+        ctx.fillStyle = 'rgb(200, 200, 200)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgb(0, 0, 0)';
+        ctx.beginPath();
+        
+        const sliceWidth = canvas.width * 1.0 / bufferLength;
+        let x = 0;
+        
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = v * canvas.height / 2;
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+            
+            x += sliceWidth;
+        }
+        
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+    }
+    
+    draw();
+}
+
+function stopVisualization() {
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+    if (analyser) {
+        analyser = null;
+    }
+    // 캔버스 초기화
+    const waveform = document.getElementById('waveform');
+    const canvas = document.getElementById('waveformCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    waveform.classList.add('d-none');
+}
+
 // 음성 녹음 초기화
-function initializeVoiceRecording() {
+async function initializeVoiceRecording() {
+    console.info('Initializing voice recording...');
     const recordButton = document.getElementById('recordButton');
     const recordingResult = document.getElementById('recordingResult');
     const playPauseBtn = document.getElementById('playPauseBtn');
@@ -325,135 +382,6 @@ function initializeVoiceRecording() {
         recordButton.classList.remove('recording');
         recordingResult.classList.add('hidden');
     }
-
-    // 녹음 시작 버튼 이벤트
-    recordButton.onclick = async () => {
-        try {
-            if (!isRecording) {
-                // 녹음 시작
-                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(audioStream);
-                source.connect(analyser);
-                
-                mediaRecorder = new MediaRecorder(audioStream);
-                audioChunks = [];
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    audioChunks.push(event.data);
-                };
-                
-                mediaRecorder.onstop = () => {
-                    audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                    
-                    // 오디오 플레이어 설정
-                    audioPlayer = initializeAudioPlayer(audioBlob);
-                    
-                    // 총 재생 시간 설정
-                    audioPlayer.onloadedmetadata = () => {
-                        totalTimeSpan.textContent = formatTime(audioPlayer.duration);
-                    };
-
-                    // 재생/일시정지 버튼 설정
-                    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                    playPauseBtn.onclick = () => {
-                        if (audioPlayer.paused) {
-                            audioPlayer.play();
-                            playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                        } else {
-                            audioPlayer.pause();
-                            playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                        }
-                    };
-
-                    // 진행 표시줄 업데이트
-                    audioPlayer.ontimeupdate = () => {
-                        const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-                        progressBar.style.width = `${progress}%`;
-                        currentTimeSpan.textContent = formatTime(audioPlayer.currentTime);
-                    };
-
-                    // 재생 완료 시 버튼 초기화
-                    audioPlayer.onended = () => {
-                        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                    };
-                    
-                    // UI 업데이트
-                    recordingResult.classList.remove('hidden');
-                    isRecording = false;
-                };
-                
-                mediaRecorder.start();
-                recordButton.textContent = '녹음 종료';
-                recordButton.classList.add('recording');
-                isRecording = true;
-                
-                // 파형 시각화
-                visualizeAudio(canvas, analyser);
-            } else {
-                // 녹음 종료
-                mediaRecorder.stop();
-                audioStream.getTracks().forEach(track => track.stop());
-                recordButton.textContent = '녹음 시작';
-                recordButton.classList.remove('recording');
-            }
-        } catch (error) {
-            console.error('녹음 시작/종료 오류:', error);
-            alert('마이크 접근 권한을 허용해주세요.');
-            resetButtonStates();
-        }
-    };
-
-    // 다운로드 버튼 이벤트
-    // downloadRecordingBtn.onclick = () => {
-    //     if (audioBlob) {
-    //         const audioURL = URL.createObjectURL(audioBlob);
-    //         const a = document.createElement('a');
-    //         a.href = audioURL;
-    //         a.download = 'recording.wav';
-    //         a.click();
-    //     }
-    // };
-
-    // 텍스트 생성 버튼 이벤트
-    generateDocumentBtn.onclick = async () => {
-        if (audioBlob) {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: formData
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    document.getElementById('consultationText').value = result.text;
-                    alert('음성이 텍스트로 성공적으로 변환되었습니다.');
-                } else {
-                    const error = await response.json();
-                    alert(`텍스트 변환 오류: ${error.error}`);
-                }
-            } catch (error) {
-                console.error('텍스트 생성 오류:', error);
-                alert('텍스트 생성 중 오류가 발생했습니다.');
-            }
-        }
-    };
-
-    // 녹음 중지 버튼 이벤트
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && isRecording) {
-            mediaRecorder.stop();
-            audioStream.getTracks().forEach(track => track.stop());
-            resetButtonStates();
-        }
-    });
 }
 
 async function generateDocument() {
@@ -542,49 +470,59 @@ function initializeAudioPlayer(audioBlob) {
     return audioElement;
 }
 
-// 녹음 중지 이벤트 핸들러
-function handleRecordingStop(audioBlob) {
-    // Existing recording stop logic
-    const recordingResult = document.getElementById('recordingResult');
-    recordingResult.classList.remove('hidden');
-    
-    // Draw waveform
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const fileReader = new FileReader();
-    
-    fileReader.onloadend = async () => {
-        const arrayBuffer = fileReader.result;
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        drawWaveform(audioBuffer);
-    };
-    
-    fileReader.readAsArrayBuffer(audioBlob);
-    
-    // Initialize audio player
-    const audioPlayer = initializeAudioPlayer(audioBlob);
-    
-    // Update download button
-    const downloadBtn = document.getElementById('downloadRecordingBtn');
-    downloadBtn.onclick = () => {
-        const url = URL.createObjectURL(audioBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'recording.webm';
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-}
-
-
 function startNewSession() {
     // Clear any existing session data
     currentSessionId = null;
     selectedRating = 0;
 }
 
+// WebSocket을 사용하여 실시간 STT 스트리밍을 구현합니다.
+async function startStreamingStt() {
+    try {
+        // WebSocket 연결
+        console.log('Connecting to WebSocket:', wsUrl + '/stream-stt');
+        ws = new WebSocket(wsUrl + '/stream-stt');
+
+        ws.onmessage = (event) => {
+            const response = JSON.parse(event.data);
+            const consultationSection = document.getElementById('consultationSection');
+            const consultationText = document.getElementById('consultationText');
+            consultationSection.classList.toggle('hidden');
+            
+            if (response.type === 'interim' || response.type === 'final') {
+                // 기존 텍스트가 있으면 줄바꿈 후 새 텍스트 추가
+                if ( consultationText .value &&  consultationText .value.trim() !== '') {
+                     consultationText .value += '\n';
+                }
+                 consultationText .value += response.text;
+            } else if (response.type === 'error') {
+                console.error('STT 오류:', response.error);
+                alert(response.error);
+            }
+        };
+        
+        ws.onerror = (error) => {
+            console.error('WebSocket 오류:', error);
+            alert('음성 스트리밍 연결에 문제가 발생했습니다.');
+        };
+        
+    } catch (error) {
+        console.error('WebSocket 연결 오류:', error);
+        alert('음성 스트리밍 연결을 시작할 수 없습니다.');
+    }
+}
+
+async function stopStreamingStt() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send('END_STREAM');
+        ws.close();
+        ws = null;
+    }
+}
 
 // 음성 녹음 모달 관련 함수들
 function handleVoiceRecording() {
+    resetText();
     const voiceModal = new bootstrap.Modal(document.getElementById('voiceModal'));
     
     // 모달 표시 전 초기화
@@ -622,12 +560,18 @@ function handleVoiceRecording() {
                 
                 const result = await response.json();
                 
-                // 변환된 텍스트를 상담 입력창에 추가
-                const consultationText = document.getElementById('consultationText');
-                consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-                
-                // 모달 닫기
-                voiceModal.hide();
+                // 3초 후 모달 닫기
+                setTimeout(() => {
+                    voiceModal.hide();
+                    const backdrop = document.querySelector('.modal-backdrop');
+                    if (backdrop) {
+                        backdrop.remove();
+                    }
+                    // 변환된 텍스트를 상담 입력창에 추가
+                    mainContent.classList.toggle('generate');
+                    consultationSection.classList.toggle('hidden');
+                    consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
+                }, 3000);
             }
         } catch (error) {
             console.error('음성 변환 오류:', error);
@@ -647,27 +591,32 @@ function handleVoiceRecording() {
 async function toggleRecording() {
     const recordButton = document.getElementById('recordButton');
     const recordingStatus = document.getElementById('recordingStatus');
-    
+
     if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-        // 녹음 시작
+        console.log("Starting recording...");
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
             audioChunks = [];
             
-            mediaRecorder.ondataavailable = (event) => {
-                audioChunks.push(event.data);
+            // 실시간 STT 스트리밍 시작
+            await startStreamingStt();
+            
+            mediaRecorder = new MediaRecorder(stream);
+            visualizeStream(stream);
+            
+            mediaRecorder.ondataavailable = async (event) => {
+                if (event.data.size > 0) {
+                    // WebSocket을 통해 오디오 데이터 전송
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(await event.data.arrayBuffer());
+                    }
+                    audioChunks.push(event.data);
+                }
             };
             
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const audioElement = document.getElementById('recordedAudio');
-                audioElement.src = audioUrl;
-                document.getElementById('audioPreview').classList.remove('d-none');
-            };
+            // 더 작은 시간 간격으로 데이터 전송
+            mediaRecorder.start(1000);  // 1초마다 데이터 전송
             
-            mediaRecorder.start();
             recordButton.classList.add('recording');
             recordingStatus.textContent = '녹음 중...';
             startRecordingTimer();
@@ -680,6 +629,9 @@ async function toggleRecording() {
         // 녹음 중지
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        await stopStreamingStt();
+        stopVisualization();
+        
         recordButton.classList.remove('recording');
         recordingStatus.textContent = '녹음 완료';
         stopRecordingTimer();
@@ -708,14 +660,33 @@ function updateRecordingTime() {
         `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
+// 음성 데이터 저장
+function saveVoiceData() {
+    // 녹음된 오디오나 업로드된 파일을 서버로 전송하는 로직
+    console.log("saveVoiceData");
+    let audioData;
+    audioData = new Blob(audioChunks, { type: 'audio/wav' });
+    if (audioData) {
+        // TODO: 서버로 오디오 데이터 전송
+        const modal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
+        modal.hide();
+        
+        // 모달 초기화
+        resetVoiceModal();
+    }
+}
+
 // 파일 업로드 처리
 function handleAudioFileUpload() {
+    resetText();
     // 모달 요소 가져오기
     const uploadModal = new bootstrap.Modal(document.getElementById('uploadModal'));
     const fileInput = document.getElementById('audioFileInput');
     const uploadButton = document.getElementById('uploadAudioButton');
     const uploadStatus = document.getElementById('uploadStatus');
-    
+    const mainContent = document.querySelector('.main-content')
+    const consultationSection = document.getElementById('consultationSection');
+    const consultationText = document.getElementById('consultationText');
     // 파일 선택 시 이벤트
     fileInput.onchange = (event) => {
         const file = event.target.files[0];
@@ -758,21 +729,25 @@ function handleAudioFileUpload() {
             }
             
             const result = await response.json();
-            
-            // 변환된 텍스트를 상담 입력창에 추가
-            const consultationText = document.getElementById('consultationText');
-            consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-            
+                
             // 성공 메시지 표시
             uploadStatus.textContent = '음성이 성공적으로 텍스트로 변환되었습니다.';
             
             // 3초 후 모달 닫기
             setTimeout(() => {
                 uploadModal.hide();
+                const backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
                 // 입력 초기화
                 fileInput.value = '';
                 uploadStatus.textContent = '';
                 uploadButton.disabled = true;
+                // 변환된 텍스트를 상담 입력창에 추가
+                mainContent.classList.toggle('generate');
+                consultationSection.classList.toggle('hidden');
+                consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
             }, 3000);
             
         } catch (error) {
@@ -781,40 +756,28 @@ function handleAudioFileUpload() {
             uploadButton.disabled = false;
         }
     };
-    
-    // 모달이 닫힐 때 초기화
-    document.getElementById('uploadModal').addEventListener('hidden.bs.modal', () => {
-        fileInput.value = '';
-        uploadStatus.textContent = '';
-        uploadButton.disabled = true;
-    });
-    
-    // 모달 표시
     uploadModal.show();
 }
 
-// 음성 데이터 저장
-function saveVoiceData() {
-    // 녹음된 오디오나 업로드된 파일을 서버로 전송하는 로직
-    console.log("saveVoiceData");
-    let audioData;
-    audioData = new Blob(audioChunks, { type: 'audio/wav' });
-    if (audioData) {
-        // TODO: 서버로 오디오 데이터 전송
-        const modal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
-        modal.hide();
-        
-        // 모달 초기화
-        resetVoiceModal();
-    }
-}
 
 // 모달 초기화
 function resetVoiceModal() {
     stopRecordingTimer();
     document.getElementById('recordingTime').textContent = '00:00';
     document.getElementById('recordingStatus').textContent = '녹음 대기중...';
+    document.getElementById('recordButton').classList.remove('recording');
+    document.getElementById('audioPreview').src = '';
     document.getElementById('audioPreview').classList.add('d-none');
+    document.getElementById('audioFileInput').value = '';
+    document.getElementById('uploadStatus').textContent = '';
+    document.getElementById('uploadAudioButton').disabled = true;
+    document.getElementById('waveform').classList.add('d-none');
+    
+    if (mediaRecorder) {
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        mediaRecorder = null;
+    }
+
     audioChunks = [];
 }
 
@@ -947,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeVoiceRecording();
     }
     // 녹음 버튼 이벤트
-    document.getElementById('recordButton').addEventListener('click', toggleRecording);
+    // document.getElementById('recordButton').addEventListener('click', toggleRecording);
     // 파일 업로드 이벤트
     document.getElementById('audioFileInput').addEventListener('change', handleAudioFileUpload);
     // 저장 버튼 이벤트
@@ -955,4 +918,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // 모달 닫힐 때 초기화
     document.getElementById('voiceModal').addEventListener('hidden.bs.modal', resetVoiceModal);
     initializeAutoResize();
+    
+    // 평가 모달 이벤트
 });

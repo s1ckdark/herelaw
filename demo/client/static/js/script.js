@@ -1,3 +1,4 @@
+const API_BASE_URL = 'http://localhost:5000/api';
 // 폼 전환 함수
 function toggleForm(formType) {
     const loginForm = document.getElementById('loginForm');
