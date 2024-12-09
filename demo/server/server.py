@@ -6,10 +6,10 @@ import os
 from dotenv import load_dotenv
 from flask_cors import CORS
 from langchain_community.vectorstores import FAISS
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.chains import RetrievalQA
-from langchain.llms import OpenAI
+from langchain_community.llms import OpenAI
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 import uuid
@@ -243,7 +243,7 @@ class MongoDBManager:
                 print(f"로그 저장 성공: {result.inserted_id}")
                 return result.inserted_id
             else:
-                raise Exception("로그 저장 실패")
+                raise Exception("로그 저��� 실패")
 
         except Exception as e:
             print(f"로그 저장 중 오류: {str(e)}")
@@ -401,7 +401,7 @@ class ReinforcementLearner:
             # 길이 분석
             features['avg_length'] += len(complaint)
 
-            # 법률 용어 사용 빈도
+            # 법률 용어 ��용 빈도
             for term in legal_terms:
                 if term not in features['common_legal_terms']:
                     features['common_legal_terms'][term] = 0
@@ -542,7 +542,7 @@ class DivorceComplaintGenerator:
         })
 
         response = openai.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=messages,
             temperature=0.3
         )
@@ -949,7 +949,7 @@ def login():
         password = data.get('password')
 
         if not all([username, password]):
-            return jsonify({"error": "사용자명과 비밀번호를 입력해��세요."}), 400
+            return jsonify({"error": "사용자명과 비밀번호를 입력해세요."}), 400
 
         # 사용자 인증
         user = mongodb_manager.verify_user(username, password)
@@ -1168,7 +1168,7 @@ def save_feedback():
         })
 
     except ValueError as ve:
-        print(f"값 ��류 발생: {str(ve)}")
+        print(f"값 류 발생: {str(ve)}")
         return jsonify({"error": f"잘못된 입력값: {str(ve)}"}), 400
     except Exception as e:
         print(f"피드백 저장 중 오류 발생: {str(e)}")
@@ -1203,51 +1203,32 @@ def upload_audio():
         converted_filepath = convert_audio_to_wav(input_filepath)
 
         if not converted_filepath:
-            # 변환 실패 시 원본 ���일 삭제
             os.remove(input_filepath)
             return jsonify({"error": "오디오 파일 변환에 실패했습니다."}), 400
 
-        # 변환된 파일로 음성 인식 수행
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(converted_filepath) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language='ko-KR')
+        # Whisper 모델을 사용하여 음성 인식 수행
+        model = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=open(converted_filepath, "rb"),
+            language="ko",
+            response_format="text"
+        )
 
         # 임시 파일들 삭제
         os.remove(input_filepath)
         os.remove(converted_filepath)
 
-        return jsonify({"text": text}), 200
-
-    except sr.UnknownValueError:
-        # 음성 인식 불가능한 경우
-        # 임시 파일들 삭제
-        if os.path.exists(input_filepath):
-            os.remove(input_filepath)
-        if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
-            os.remove(converted_filepath)
-
-        return jsonify({"error": "음성을 인식할 수 없습니다."}), 400
-
-    except sr.RequestError:
-        # 음성 인식 서비스 오류
-        # 임시 파일들 삭제
-        if os.path.exists(input_filepath):
-            os.remove(input_filepath)
-        if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
-            os.remove(converted_filepath)
-
-        return jsonify({"error": "음성 인식 서비스에 문제가 있습니다."}), 500
+        return jsonify({"text": model}), 200
 
     except Exception as e:
-        # 기타 예외 처리
         # 임시 파일들 삭제
         if os.path.exists(input_filepath):
             os.remove(input_filepath)
         if 'converted_filepath' in locals() and os.path.exists(converted_filepath):
             os.remove(converted_filepath)
 
-        return jsonify({"error": str(e)}), 500
+        print(f"음성 인식 중 오류 발생: {str(e)}")
+        return jsonify({"error": f"음성 인식 중 오류가 발생했습니다: {str(e)}"}), 500
 
 @app.route('/api/rate-session', methods=['POST'])
 @jwt_required()
@@ -1395,7 +1376,7 @@ def update_complaint():
                     "details": f"Session ID: {session_id}, User ID: {request.user_id}"
                 }), 403
 
-        # 추가적인 로깅 또는 처���
+        # 추가적인 로깅 또는 처
         print(f"소장 업데이트 - 사용자 ID: {request.user_id}, 세션 ID: {session_id}")
 
         return jsonify({
@@ -1467,123 +1448,7 @@ def start_consultation():
         print(f"상담 시작 중 오류 발생: {str(e)}")
         return jsonify({"error": "상담 시작 중 오류가 발생했습니다.", "details": str(e)}), 500
 
-@app.route('/api/download-complaint', methods=['POST'])
-@jwt_required()
-def download_complaint():
-    """
-    소장 내용을 DOCX 형식으로 변환하여 다운로드합니다.
-    
-    요청 본문 예시:
-    {
-        "complaint": "소장 내용"
-    }
-    """
-    try:
-        data = request.get_json()
-        if not data or 'complaint' not in data:
-            return jsonify({"error": "소장 내용이 제공되지 않았습니다."}), 400
 
-        complaint_text = data['complaint']
-
-        # DOCX 파일 생성
-        doc = Document()
-
-        # 제목 추가
-        doc.add_heading('이혼소장', 0)
-
-        # 본문 추가
-        doc.add_paragraph(complaint_text)
-
-        # 메모리에 DOCX 파일 저장
-        docx_file = BytesIO()
-        doc.save(docx_file)
-        docx_file.seek(0)
-
-        return send_file(
-            docx_file,
-            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            as_attachment=True,
-            download_name=f'이혼소장_{datetime.now().strftime("%Y-%m-%d")}.docx'
-        )
-
-    except Exception as e:
-        print(f"DOCX 파일 생성 중 오류: {str(e)}")
-        return jsonify({"error": "문서 생성 중 오류가 발생했습니다."}), 500
-
-@sock.route('/api/stream-stt')
-def stream_stt(ws):
-    temp_audio_data = io.BytesIO()
-
-    try:
-        while True:
-            # 클라이언트로부터 오디오 청크 데이터 수신
-            audio_chunk = ws.receive()
-
-            if audio_chunk == "END_STREAM":
-                # 스트림 종료 신호를 받으면 최종 처리
-                temp_audio_data.seek(0)
-
-                # WAV 파일 형식으로 변환
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as temp_wav:
-                    with wave.open(temp_wav.name, 'wb') as wav_file:
-                        wav_file.setnchannels(1)  # mono
-                        wav_file.setsampwidth(2)  # 16-bit
-                        wav_file.setframerate(44100)  # 44.1kHz
-                        wav_file.writeframes(temp_audio_data.getvalue())
-
-                    # OpenAI Whisper API로 음성을 텍스트로 변환
-                    with open(temp_wav.name, 'rb') as audio_file:
-                        response = client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            language="ko",
-                            response_format="text"
-                        )
-
-                # 결과 전송
-                ws.send(json.dumps({
-                    "type": "final",
-                    "text": response
-                }))
-                break
-
-            # 오디오 데이터 누적
-            temp_audio_data.write(audio_chunk)
-
-            # 일정 크기(예: 5초)의 데이터가 모이면 중간 결과 처리
-            if temp_audio_data.tell() > 44100 * 2 * 5:  # 5초 분량 (44.1kHz, 16-bit)
-                temp_audio_data.seek(0)
-
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as temp_wav:
-                    with wave.open(temp_wav.name, 'wb') as wav_file:
-                        wav_file.setnchannels(1)
-                        wav_file.setsampwidth(2)
-                        wav_file.setframerate(44100)
-                        wav_file.writeframes(temp_audio_data.getvalue())
-
-                    with open(temp_wav.name, 'rb') as audio_file:
-                        response = client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            language="ko",
-                            response_format="text"
-                        )
-
-                # 중간 결과 전송
-                ws.send(json.dumps({
-                    "type": "interim",
-                    "text": response
-                }))
-
-                # 버퍼 초기화
-                temp_audio_data = io.BytesIO()
-
-    except Exception as e:
-        print(f"스트리밍 STT 처리 중 오류 발생: {str(e)}")
-        ws.send(json.dumps({
-            "type": "error",
-            "error": "음성을 텍스트로 변환하는 중 오류가 발생했습니다."
-        }))
 
 def convert_audio_to_wav(input_file):
     """

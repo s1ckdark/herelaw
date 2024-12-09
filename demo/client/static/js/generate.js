@@ -385,6 +385,16 @@ async function initializeVoiceRecording() {
 }
 
 async function generateDocument() {
+    // audioBlob이 없다면 에러 처리
+    if (!audioBlob) {
+        alert('변환할 음성 데이터가 없습니다.');
+        return;
+    }
+
+    // FormData 객체 생성 및 오디오 데이터 추가
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.wav');
+
     try {
         const response = await fetch(`${API_BASE_URL}/upload-audio`, {
             method: 'POST',
@@ -406,68 +416,24 @@ async function generateDocument() {
         console.error('텍스트 생성 오류:', error);
         alert('텍스트 생성 중 오류가 발생했습니다.');
     }
-};
+}
 
 // 오디오 플레이어 초기화
 function initializeAudioPlayer(audioBlob) {
-    const audioPlayer = document.getElementById('audioPlayer');
-    const playPauseBtn = document.getElementById('playPauseBtn');
-    const progressBar = document.getElementById('progressBar');
-    const currentTimeEl = document.getElementById('currentTime');
-    const totalTimeEl = document.getElementById('totalTime');
-
-    // Remove any existing audio elements
-    if (audioPlayer) {
-        audioPlayer.remove();
-    }
-
-    // Create new audio element
-    const audioElement = new Audio(URL.createObjectURL(audioBlob));
-    audioElement.id = 'audioPlayer';
+    const audioPreview = document.getElementById('audioPreview');
+    const recordedAudio = document.getElementById('recordedAudio');
     
-    // Track play/pause state
-    let isPlaying = false;
-
-    // Update play/pause button
-    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    // 오디오 URL 생성 및 설정
+    const audioUrl = URL.createObjectURL(audioBlob);
+    recordedAudio.src = audioUrl;
     
-    // Event listeners for audio
-    audioElement.addEventListener('loadedmetadata', () => {
-        // Set total time
-        totalTimeEl.textContent = formatTime(audioElement.duration);
-    });
-
-    audioElement.addEventListener('timeupdate', () => {
-        // Update current time and progress bar
-        const progress = (audioElement.currentTime / audioElement.duration) * 100;
-        progressBar.style.width = `${progress}%`;
-        currentTimeEl.textContent = formatTime(audioElement.currentTime);
-    });
-
-    audioElement.addEventListener('ended', () => {
-        // Reset play button and progress
-        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-        progressBar.style.width = '0%';
-        isPlaying = false;
-    });
-
-    // Play/Pause functionality
-    playPauseBtn.addEventListener('click', () => {
-        if (isPlaying) {
-            audioElement.pause();
-            playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-            isPlaying = false;
-        } else {
-            audioElement.play();
-            playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-            isPlaying = true;
-        }
-    });
-
-    // Append audio element to body (hidden)
-    document.body.appendChild(audioElement);
-
-    return audioElement;
+    // 오디오 미리듣기 섹션 표시
+    audioPreview.classList.remove('d-none');
+    
+    // 이전 URL 해제
+    return () => {
+        URL.revokeObjectURL(audioUrl);
+    };
 }
 
 function startNewSession() {
@@ -476,39 +442,114 @@ function startNewSession() {
     selectedRating = 0;
 }
 
-// WebSocket을 사용하여 실시간 STT 스트리밍을 구현합니다.
 async function startStreamingStt() {
     try {
-        // WebSocket 연결
-        console.log('Connecting to WebSocket:', wsUrl + '/stream-stt');
+        console.log('[WebSocket] Attempting to connect to:', wsUrl + '/stream-stt');
+
         ws = new WebSocket(wsUrl + '/stream-stt');
 
+        // WebSocket 상태를 정기적으로 체크하는 헬퍼
+        const logWsState = () => {
+            let stateStr = '';
+            switch (ws.readyState) {
+                case WebSocket.CONNECTING: stateStr = 'CONNECTING'; break;
+                case WebSocket.OPEN: stateStr = 'OPEN'; break;
+                case WebSocket.CLOSING: stateStr = 'CLOSING'; break;
+                case WebSocket.CLOSED: stateStr = 'CLOSED'; break;
+                default: stateStr = 'UNKNOWN'; break;
+            }
+            console.log(`[WebSocket] Current readyState: ${ws.readyState} (${stateStr})`);
+        };
+
+        // 주기적으로 상태 체크 (디버깅용, 필요 없으면 제거 가능)
+        const intervalId = setInterval(() => {
+            if (ws) logWsState();
+        }, 5000);
+
+        ws.onopen = () => {
+            console.log('[WebSocket] Connection established (onopen)');
+            logWsState();
+        };
+
         ws.onmessage = (event) => {
-            const response = JSON.parse(event.data);
-            const consultationSection = document.getElementById('consultationSection');
-            const consultationText = document.getElementById('consultationText');
-            consultationSection.classList.toggle('hidden');
-            
-            if (response.type === 'interim' || response.type === 'final') {
-                // 기존 텍스트가 있으면 줄바꿈 후 새 텍스트 추가
-                if ( consultationText .value &&  consultationText .value.trim() !== '') {
-                     consultationText .value += '\n';
+            console.log('[WebSocket] Message received:', event.data);
+            try {
+                const response = JSON.parse(event.data);
+                const consultationSection = document.getElementById('consultationSection');
+                const consultationText = document.getElementById('consultationText');
+
+                if (response.type === 'interim' || response.type === 'final') {
+                    const currentText = consultationText.value.trim();
+                    consultationText.value = currentText ? currentText + '\n' + response.text : response.text;
+                    console.log(`[WebSocket] ${response.type} text appended to consultationText.`);
+                } else if (response.type === 'error') {
+                    console.error('[WebSocket] STT error received:', response.error);
+                    alert(response.error);
                 }
-                 consultationText .value += response.text;
-            } else if (response.type === 'error') {
-                console.error('STT 오류:', response.error);
-                alert(response.error);
+            } catch (parseError) {
+                console.error('[WebSocket] JSON parse error:', parseError, 'Event data:', event.data);
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('[WebSocket] onerror event triggered:', error);
+            logWsState();
+            alert('음성 스트리밍 연결에 문제가 발생했습니다. 콘솔 로그를 확인하세요.');
+        };
+
+        ws.onclose = (event) => {
+            console.log(`[WebSocket] Connection closed: code=${event.code}, reason=${event.reason}`);
+            logWsState();
+            clearInterval(intervalId);
+
+            // 1006은 비정상 종료 코드로, 서버측 오류나 네트워크 문제일 가능성이 높습니다.
+            if (event.code === 1006) {
+                console.warn('[WebSocket] Connection closed with 1006 - abnormal closure. Check server logs or network issues.');
             }
         };
         
-        ws.onerror = (error) => {
-            console.error('WebSocket 오류:', error);
-            alert('음성 스트리밍 연결에 문제가 발생했습니다.');
-        };
-        
     } catch (error) {
-        console.error('WebSocket 연결 오류:', error);
-        alert('음성 스트리밍 연결을 시작할 수 없습니다.');
+        console.error('[WebSocket] Connection error (startStreamingStt):', error);
+        alert('음성 스트리밍 연결을 시작할 수 없습니다. 콘솔 로그를 확인하세요.');
+    }
+}
+
+async function sendAudioData(audioData) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn('[WebSocket] Attempted to send audio data when connection is not open. State:', ws ? ws.readyState : 'ws is null');
+        return;
+    }
+
+    console.log('[WebSocket] Preparing to send audio data.');
+    try {
+        const buffer = await audioData.arrayBuffer();
+        const chunkSize = 16 * 1024;
+        const totalLength = buffer.byteLength;
+        let offset = 0;
+
+        console.log(`[WebSocket] Total audio data length: ${totalLength} bytes.`);
+
+        while (offset < totalLength) {
+            const chunk = buffer.slice(offset, Math.min(offset + chunkSize, totalLength));
+            
+            // 전송 전 상태 확인
+            if (ws.readyState !== WebSocket.OPEN) {
+                console.warn('[WebSocket] Connection closed during audio sending. Stopping transmission.');
+                break;
+            }
+
+            ws.send(chunk);
+            console.log(`[WebSocket] Sent chunk: ${chunk.byteLength} bytes, offset: ${offset}.`);
+
+            offset += chunkSize;
+
+            // 서버 부하 방지를 위한 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+
+        console.log('[WebSocket] Audio data transmission completed.');
+    } catch (error) {
+        console.error('[WebSocket] Error sending audio data:', error);
     }
 }
 
@@ -524,7 +565,7 @@ async function stopStreamingStt() {
 function handleVoiceRecording() {
     resetText();
     const voiceModal = new bootstrap.Modal(document.getElementById('voiceModal'));
-    
+    const mainContent = document.querySelector('.main-content');
     // 모달 표시 전 초기화
     resetVoiceModal();
     
@@ -591,32 +632,32 @@ function handleVoiceRecording() {
 async function toggleRecording() {
     const recordButton = document.getElementById('recordButton');
     const recordingStatus = document.getElementById('recordingStatus');
+    const audioPreview = document.getElementById('audioPreview');
 
     if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        // 녹음 시작 시 오디오 미듣기 숨기기
+        audioPreview.classList.add('d-none');
+        
         console.log("Starting recording...");
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioChunks = [];
             
-            // 실시간 STT 스트리밍 시작
-            await startStreamingStt();
-            
             mediaRecorder = new MediaRecorder(stream);
             visualizeStream(stream);
             
-            mediaRecorder.ondataavailable = async (event) => {
+            mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
-                    // WebSocket을 통해 오디오 데이터 전송
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(await event.data.arrayBuffer());
-                    }
                     audioChunks.push(event.data);
                 }
             };
             
-            // 더 작은 시간 간격으로 데이터 전송
-            mediaRecorder.start(1000);  // 1초마다 데이터 전송
+            mediaRecorder.onstop = () => {
+                audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                initializeAudioPlayer(audioBlob);
+            };
             
+            mediaRecorder.start(1000);
             recordButton.classList.add('recording');
             recordingStatus.textContent = '녹음 중...';
             startRecordingTimer();
@@ -629,7 +670,6 @@ async function toggleRecording() {
         // 녹음 중지
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        await stopStreamingStt();
         stopVisualization();
         
         recordButton.classList.remove('recording');
@@ -661,15 +701,71 @@ function updateRecordingTime() {
 }
 
 // 음성 데이터 저장
-function saveVoiceData() {
-    // 녹음된 오디오나 업로드된 파일을 서버로 전송하는 로직
-    console.log("saveVoiceData");
-    let audioData;
-    audioData = new Blob(audioChunks, { type: 'audio/wav' });
-    if (audioData) {
-        // TODO: 서버로 오디오 데이터 전송
-        const modal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
-        modal.hide();
+async function saveVoiceData() {
+    if (!audioBlob) {
+        alert('녹음된 음성이 없습니다.');
+        return;
+    }
+
+    try {
+        // WAV 형식으로 명시적 변환
+        const formData = new FormData();
+        const wavFile = new File([audioBlob], 'recording.wav', {
+            type: 'audio/wav'
+        });
+        formData.append('audio', wavFile);
+        
+        // 로딩 표시
+        const loadingModal = document.getElementById('loadingModal');
+        loadingModal.classList.remove('hidden');
+        
+        console.log('Uploading audio file:', wavFile); // 디버깅용
+
+        // API 호출
+        const response = await fetch(`${API_BASE_URL}/upload-audio`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || errorData.error || '음성 변환 실패');
+        }
+        
+        const result = await response.json();
+        
+        // 모달 닫기
+        const voiceModal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
+        if (voiceModal) {
+            voiceModal.hide();
+        }
+        
+        // 변환된 텍스트를 상담 입력창에 추가
+        const consultationText = document.getElementById('consultationText');
+        if (consultationText) {
+            consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
+            
+            // UI 업데이트
+            const mainContent = document.querySelector('.main-content');
+            const consultationSection = document.getElementById('consultationSection');
+            if (mainContent && consultationSection) {
+                mainContent.classList.toggle('generate');
+                consultationSection.classList.toggle('hidden');
+            }
+        }
+        
+    } catch (error) {
+        console.error('음성 변환 오류:', error);
+        alert(error.message || '음성 변환 중 오류가 발생했습니다.');
+    } finally {
+        // 로딩 모달 숨기기
+        const loadingModal = document.getElementById('loadingModal');
+        if (loadingModal) {
+            loadingModal.classList.add('hidden');
+        }
         
         // 모달 초기화
         resetVoiceModal();
@@ -708,14 +804,14 @@ function handleAudioFileUpload() {
         }
 
         try {
-            // 로딩 상태 표시
             uploadStatus.textContent = '파일 업로드 중...';
             uploadButton.disabled = true;
             
             const formData = new FormData();
+            // 파일 타입 확인 및 로깅
+            console.log('Uploading file:', file.type, file.size);
             formData.append('audio', file);
             
-            // API 호출
             const response = await fetch(`${API_BASE_URL}/upload-audio`, {
                 method: 'POST',
                 headers: {
@@ -725,7 +821,8 @@ function handleAudioFileUpload() {
             });
             
             if (!response.ok) {
-                throw new Error('음성 변환 실패');
+                const errorData = await response.json();
+                throw new Error(errorData.message || errorData.error || '음성 변환 실패');
             }
             
             const result = await response.json();
@@ -753,6 +850,7 @@ function handleAudioFileUpload() {
         } catch (error) {
             console.error('파일 업로드 오류:', error);
             uploadStatus.textContent = '파일 업로드 중 오류가 발생했습니다.';
+            console.error('상세 오류:', error);
             uploadButton.disabled = false;
         }
     };
@@ -763,28 +861,36 @@ function handleAudioFileUpload() {
 // 모달 초기화
 function resetVoiceModal() {
     stopRecordingTimer();
-    document.getElementById('recordingTime').textContent = '00:00';
-    document.getElementById('recordingStatus').textContent = '녹음 대기중...';
-    document.getElementById('recordButton').classList.remove('recording');
-    document.getElementById('audioPreview').src = '';
-    document.getElementById('audioPreview').classList.add('d-none');
-    document.getElementById('audioFileInput').value = '';
-    document.getElementById('uploadStatus').textContent = '';
-    document.getElementById('uploadAudioButton').disabled = true;
-    document.getElementById('waveform').classList.add('d-none');
     
-    if (mediaRecorder) {
+    const recordingTimeEl = document.getElementById('recordingTime');
+    const recordingStatusEl = document.getElementById('recordingStatus');
+    const recordButton = document.getElementById('recordButton');
+    const audioPreview = document.getElementById('audioPreview');
+    const recordedAudio = document.getElementById('recordedAudio');
+    const waveform = document.getElementById('waveform');
+    
+    // 각 요소 초기화
+    if (recordingTimeEl) recordingTimeEl.textContent = '00:00';
+    if (recordingStatusEl) recordingStatusEl.textContent = '녹음 대기중...';
+    if (recordButton) recordButton.classList.remove('recording');
+    if (audioPreview) audioPreview.classList.add('d-none');
+    if (recordedAudio) recordedAudio.src = '';
+    if (waveform) waveform.classList.add('d-none');
+    
+    // 미디어 리소스 정리
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
         mediaRecorder = null;
     }
 
     audioChunks = [];
+    audioBlob = null;
 }
 
 function copyToClipboard() {
     const textToCopy = document.getElementById('resultContent').innerText;
     navigator.clipboard.writeText(textToCopy);
-    alert('클립보드에 복사되었습니다.');
+    alert('클립보드에 사되었습니다.');
 }
 
 function initializeAutoResize() {
@@ -835,7 +941,7 @@ async function checkPreviousRating(sessionId) {
             }
         }
     } catch (error) {
-        console.error('평가 데이터 로딩 실패:', error);
+        console.error('평가 이터 로딩 실패:', error);
     }
 }
 
@@ -869,7 +975,7 @@ async function submitRating(rating) {
         }
     } catch (error) {
         console.error('평가 제출 오류:', error);
-        alert('평가 제출 중 오류가 발생했습니다.');
+        alert('평가 ��출 중 오류가 발생했습니다.');
     }
 }
 
