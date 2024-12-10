@@ -65,6 +65,7 @@ function handleText() {
     const consultationSection = document.getElementById('consultationSection')
     consultationSection.classList.toggle('hidden');
     mainContent.classList.toggle('generate');
+    initializeAutoResize();
 }
 
 // 상담 시작 함수 수정
@@ -315,8 +316,9 @@ function visualizeStream(stream) {
         
         analyser.getByteTimeDomainData(dataArray);
         
-        ctx.fillStyle = 'rgb(200, 200, 200)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Clear the canvas instead of filling with grey
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
         ctx.lineWidth = 2;
         ctx.strokeStyle = 'rgb(0, 0, 0)';
         ctx.beginPath();
@@ -565,7 +567,6 @@ async function stopStreamingStt() {
 function handleVoiceRecording() {
     resetText();
     const voiceModal = new bootstrap.Modal(document.getElementById('voiceModal'));
-    const mainContent = document.querySelector('.main-content');
     // 모달 표시 전 초기화
     resetVoiceModal();
     
@@ -576,56 +577,68 @@ function handleVoiceRecording() {
     // 저장 버튼 이벤트 리스너 설정
     const saveButton = document.getElementById('saveVoiceButton');
     saveButton.onclick = async () => {
-
         try {
-            if (audioBlob) {
-                const formData = new FormData();
-                formData.append('audio', audioBlob);
-                
-                // 로딩 표시
-                const loadingModal = document.getElementById('loadingModal');
-                loadingModal.classList.remove('hidden');
-                
-                // API 호출
-                const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error('음성 변환 실패');
-                }
-                
-                const result = await response.json();
-                
-                // 3초 후 모달 닫기
-                setTimeout(() => {
-                    voiceModal.hide();
-                    const backdrop = document.querySelector('.modal-backdrop');
-                    if (backdrop) {
-                        backdrop.remove();
-                    }
-                    // 변환된 텍스트를 상담 입력창에 추가
-                    mainContent.classList.toggle('generate');
-                    consultationSection.classList.toggle('hidden');
-                    consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-                }, 3000);
-            }
+            await saveVoiceData();
         } catch (error) {
-            console.error('음성 변환 오류:', error);
-            alert('음성 변환 중 오류가 발생했습니다.');
-        } finally {
-            // 로딩 모달 숨기기
-            const loadingModal = document.getElementById('loadingModal');
-            loadingModal.classList.add('hidden');
+            console.error('음성 저장 오류:', error);
+            alert(error.message || '음성 저장 중 오류가 발생했습니다.');
         }
     };
     
     // 모달 표시
     voiceModal.show();
+}
+
+// 음성 데이터 저장
+async function saveVoiceData() {
+    try {
+        // 녹음 중이라면 중지하고 Blob이 생성될 때까지 대기
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            // Blob이 생성될 때까지 기다리는 Promise
+            const waitForBlob = new Promise((resolve) => {
+                mediaRecorder.onstop = () => {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    initializeAudioPlayer(audioBlob);
+                    resolve();
+                };
+            });
+
+            // 녹음 중지
+            mediaRecorder.stop();
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            stopVisualization();
+            
+            const recordButton = document.getElementById('recordButton');
+            recordButton.classList.remove('recording');
+            document.getElementById('recordingStatus').textContent = '녹음 완료';
+            stopRecordingTimer();
+            
+            // Blob이 생성될 때까지 대기
+            await waitForBlob;
+        }
+
+        // audioBlob이 없으면 에러
+        if (!audioBlob) {
+            throw new Error('녹음된 음성이 없습니다.');
+        }
+
+        // WAV 형식으로 명시적 변환
+        const wavFile = new File([audioBlob], 'recording.wav', {
+            type: 'audio/wav'
+        });
+        
+        // 로딩 표시
+        const loadingModal = document.getElementById('loadingModal');
+        loadingModal.classList.remove('hidden');
+        
+        console.log('Uploading audio file:', wavFile); // 디버깅용
+
+        await handleAudioUpload(wavFile, 'voice');
+        
+    } catch (error) {
+        console.error('음성 변환 오류:', error);
+        throw error; // 상위 호출자에게 에러를 전파
+    }
 }
 
 // 녹음 시작/중지 함수
@@ -700,78 +713,6 @@ function updateRecordingTime() {
         `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-// 음성 데이터 저장
-async function saveVoiceData() {
-    if (!audioBlob) {
-        alert('녹음된 음성이 없습니다.');
-        return;
-    }
-
-    try {
-        // WAV 형식으로 명시적 변환
-        const formData = new FormData();
-        const wavFile = new File([audioBlob], 'recording.wav', {
-            type: 'audio/wav'
-        });
-        formData.append('audio', wavFile);
-        
-        // 로딩 표시
-        const loadingModal = document.getElementById('loadingModal');
-        loadingModal.classList.remove('hidden');
-        
-        console.log('Uploading audio file:', wavFile); // 디버깅용
-
-        // API 호출
-        const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: formData
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || errorData.error || '음성 변환 실패');
-        }
-        
-        const result = await response.json();
-        
-        // 모달 닫기
-        const voiceModal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
-        if (voiceModal) {
-            voiceModal.hide();
-        }
-        
-        // 변환된 텍스트를 상담 입력창에 추가
-        const consultationText = document.getElementById('consultationText');
-        if (consultationText) {
-            consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-            
-            // UI 업데이트
-            const mainContent = document.querySelector('.main-content');
-            const consultationSection = document.getElementById('consultationSection');
-            if (mainContent && consultationSection) {
-                mainContent.classList.toggle('generate');
-                consultationSection.classList.toggle('hidden');
-            }
-        }
-        
-    } catch (error) {
-        console.error('음성 변환 오류:', error);
-        alert(error.message || '음성 변환 중 오류가 발생했습니다.');
-    } finally {
-        // 로딩 모달 숨기기
-        const loadingModal = document.getElementById('loadingModal');
-        if (loadingModal) {
-            loadingModal.classList.add('hidden');
-        }
-        
-        // 모달 초기화
-        resetVoiceModal();
-    }
-}
-
 // 파일 업로드 처리
 function handleAudioFileUpload() {
     resetText();
@@ -780,9 +721,8 @@ function handleAudioFileUpload() {
     const fileInput = document.getElementById('audioFileInput');
     const uploadButton = document.getElementById('uploadAudioButton');
     const uploadStatus = document.getElementById('uploadStatus');
-    const mainContent = document.querySelector('.main-content')
-    const consultationSection = document.getElementById('consultationSection');
-    const consultationText = document.getElementById('consultationText');
+    
+
     // 파일 선택 시 이벤트
     fileInput.onchange = (event) => {
         const file = event.target.files[0];
@@ -798,65 +738,154 @@ function handleAudioFileUpload() {
     // 업로드 버튼 클릭 이벤트
     uploadButton.onclick = async () => {
         const file = fileInput.files[0];
-        if (!file) {
-            alert('파일을 선택해주세요.');
-            return;
-        }
-
-        try {
-            uploadStatus.textContent = '파일 업로드 중...';
-            uploadButton.disabled = true;
-            
-            const formData = new FormData();
-            // 파일 타입 확인 및 로깅
-            console.log('Uploading file:', file.type, file.size);
-            formData.append('audio', file);
-            
-            const response = await fetch(`${API_BASE_URL}/upload-audio`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: formData
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || errorData.error || '음성 변환 실패');
-            }
-            
-            const result = await response.json();
-                
-            // 성공 메시지 표시
-            uploadStatus.textContent = '음성이 성공적으로 텍스트로 변환되었습니다.';
-            
-            // 3초 후 모달 닫기
-            setTimeout(() => {
-                uploadModal.hide();
-                const backdrop = document.querySelector('.modal-backdrop');
-                if (backdrop) {
-                    backdrop.remove();
-                }
-                // 입력 초기화
-                fileInput.value = '';
-                uploadStatus.textContent = '';
-                uploadButton.disabled = true;
-                // 변환된 텍스트를 상담 입력창에 추가
-                mainContent.classList.toggle('generate');
-                consultationSection.classList.toggle('hidden');
-                consultationText.value += (consultationText.value ? '\n\n' : '') + result.text;
-            }, 3000);
-            
-        } catch (error) {
-            console.error('파일 업로드 오류:', error);
-            uploadStatus.textContent = '파일 업로드 중 오류가 발생했습니다.';
-            console.error('상세 오류:', error);
-            uploadButton.disabled = false;
-        }
+        await handleAudioUpload(file, 'upload');
     };
+    
+    // 모달 표시
     uploadModal.show();
 }
 
+// 음성 파일 업로드 및 처리 함수
+const handleAudioUpload = async (file, type = 'upload') => {
+    if (!file) {
+        alert('파일을 선택해주세요.');
+        return;
+    }
+
+    try {
+        const fileInput = document.getElementById('audioFileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const progressBar = type === 'upload' ? 
+            document.getElementById('uploadProgress').querySelector('.progress-bar') :
+            document.getElementById('voiceProgress').querySelector('.progress-bar');
+        const progressDiv = type === 'upload' ? 
+            document.getElementById('uploadProgress') :
+            document.getElementById('voiceProgress');
+        const progressStatus = type === 'upload' ? 
+            document.getElementById('uploadProgressStatus') :
+            document.getElementById('voiceProgressStatus');
+        
+        // 초기화
+        progressDiv.classList.remove('d-none');
+        progressStatus.classList.remove('d-none');
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
+        progressStatus.textContent = '파일 업로드 준비 중...';
+        
+        if (type === 'upload') {
+            uploadStatus.textContent = '파일 업로드 중...';
+            const uploadButton = document.getElementById('uploadAudioButton');
+            uploadButton.disabled = true;
+        }
+        
+        const formData = new FormData();
+        formData.append('audio', file);
+        
+        // XMLHttpRequest 사용하여 진행률 표시
+        const xhr = new XMLHttpRequest();
+        
+        // 업로드 진행률 업데이트를 더 부드럽게 처리
+        let lastProgress = 0;
+        const updateProgress = (current) => {
+            const step = (current - lastProgress) / 10;
+            let currentProgress = lastProgress;
+            
+            const animate = () => {
+                currentProgress += step;
+                if (current >= lastProgress && currentProgress <= current) {
+                    progressBar.style.width = currentProgress + '%';
+                    progressBar.setAttribute('aria-valuenow', currentProgress);
+                    progressStatus.textContent = `업로드 중... ${Math.round(currentProgress)}%`;
+                    requestAnimationFrame(animate);
+                }
+            };
+            requestAnimationFrame(animate);
+            lastProgress = current;
+        };
+        
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentComplete = (event.loaded / event.total) * 100;
+                updateProgress(percentComplete);
+            }
+        };
+        
+        const response = await new Promise((resolve, reject) => {
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    updateProgress(100);
+                    progressStatus.textContent = '음성 변환 중...';
+                    resolve(JSON.parse(xhr.responseText));
+                } else {
+                    reject(new Error('업로드 실패'));
+                }
+            };
+            
+            xhr.onerror = () => reject(new Error('네트워크 오류'));
+            
+            xhr.open('POST', `${API_BASE_URL}/upload-audio`);
+            xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('token')}`);
+            xhr.send(formData);
+        });
+        
+        // 성공 메시지 표시
+        progressStatus.textContent = '음성이 성공적으로 텍스트로 변환되었습니다.';
+        
+        // 3초 후 모달 닫기
+        setTimeout(() => {
+            const uploadModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
+            const voiceModal = bootstrap.Modal.getInstance(document.getElementById('voiceModal'));
+            
+            // 모달 타입에 따라 적절한 모달 닫기
+            if (type === 'upload' && uploadModal) {
+                uploadModal.hide();
+                fileInput.value = '';
+                uploadStatus.textContent = '';
+                const uploadButton = document.getElementById('uploadAudioButton');
+                uploadButton.disabled = true;
+            } else if (type === 'voice' && voiceModal) {
+                voiceModal.hide();
+            }
+    
+            const backdrop = document.querySelector('.modal-backdrop');
+            if (backdrop) {
+                backdrop.remove();
+            }
+            
+            // 변환된 텍스트를 상담 입력창에 추가
+            const mainContent = document.querySelector('.main-content');
+            const consultationSection = document.getElementById('consultationSection');
+            const consultationText = document.getElementById('consultationText');
+            if (mainContent && consultationSection && consultationText) {
+                mainContent.classList.toggle('generate');
+                consultationSection.classList.toggle('hidden');
+                consultationText.value += (consultationText.value ? '\n\n' : '') + response.text;
+            }
+            
+            // 프로그레스 바 초기화 및 숨기기
+            progressDiv.classList.add('d-none');
+            progressStatus.classList.add('d-none');
+            progressBar.style.width = '0%';
+            
+        }, 3000);
+        
+    } catch (error) {
+        console.error('파일 업로드 오류:', error);
+        const uploadStatus = document.getElementById('uploadStatus');
+        uploadStatus.textContent = '파일 업로드 중 오류가 발생했습니다.';
+        console.error('상세 오류:', error);
+        
+        const progressStatus = type === 'upload' ? 
+            document.getElementById('uploadProgressStatus') :
+            document.getElementById('voiceProgressStatus');
+        progressStatus.textContent = '업로드 실패';
+        
+        if (type === 'upload') {
+            const uploadButton = document.getElementById('uploadAudioButton');
+            uploadButton.disabled = false;
+        }
+    }
+};
 
 // 모달 초기화
 function resetVoiceModal() {
@@ -975,7 +1004,7 @@ async function submitRating(rating) {
         }
     } catch (error) {
         console.error('평가 제출 오류:', error);
-        alert('평가 ��출 중 오류가 발생했습니다.');
+        alert('평가 제출 중 오류가 발생했습니다.');
     }
 }
 
@@ -1010,20 +1039,5 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
     startNewSession();
     document.getElementById('username').textContent = localStorage.getItem('username');
-
-    // 음성 녹음 기능 초기화
-    if (document.getElementById('recordButton')) {
-        initializeVoiceRecording();
-    }
-    // 녹음 버튼 이벤트
-    // document.getElementById('recordButton').addEventListener('click', toggleRecording);
-    // 파일 업로드 이벤트
-    document.getElementById('audioFileInput').addEventListener('change', handleAudioFileUpload);
-    // 저장 버튼 이벤트
-    document.getElementById('saveVoiceButton').addEventListener('click', saveVoiceData);    
-    // 모달 닫힐 때 초기화
-    document.getElementById('voiceModal').addEventListener('hidden.bs.modal', resetVoiceModal);
-    initializeAutoResize();
     
-    // 평가 모달 이벤트
 });

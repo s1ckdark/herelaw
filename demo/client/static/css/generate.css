@@ -17,9 +17,18 @@
 .action-btn:hover {
     color: #bebebe;
     background-color: #f0f0f0;
+    outline: none;
 }
 .action-btn:focus {
     outline: none;
+    box-shadow: none;
+}
+.action-btn:active {
+    outline: none;
+    box-shadow: none !important;
+}
+.action-btn i {
+    font-size: 24px;
 }
 
 .line {
@@ -38,26 +47,27 @@
 
 @keyframes animateLine {
     0% {
-        clip-path: polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%);
+        clip-path: polygon(0% 0%, 100% 0%, 100% 0%, 0% 0%);
     }
     25% {
-        clip-path: polygon(0% 0%, 100% 0%, 100% 0%, 0% 100%);
+        clip-path: polygon(0% 0%, 100% 0%, 100% 25%, 0% 25%);
     }
     50% {
-        clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 100% 100%);
+        clip-path: polygon(0% 0%, 100% 0%, 100% 50%, 0% 50%);
     }
     75% {
-        clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
+        clip-path: polygon(0% 0%, 100% 0%, 100% 75%, 0% 75%);
     }
     100% {
-        clip-path: polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%);
+        clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
     }
 }
 
-
 .action-btn:hover .line {
+    animation: animateLine 1s ease-in-out forwards;
     clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
 }
+
 /* 녹음 버튼 스타일 */
 #recordButton {
     width: 60px;
@@ -249,11 +259,11 @@ audio {
     max-width: 400px;
 }
 
-.progress-container {
+.modal .progress-container {
     text-align: center;
 }
 
-.progress-bar {
+.modal .progress-bar {
     background-color: #f0f0f0;
     border-radius: 10px;
     height: 20px;
@@ -261,19 +271,19 @@ audio {
     overflow: hidden;
 }
 
-.progress-bar-fill {
+.modal .progress-bar-fill {
     background-color: #4CAF50;
     height: 100%;
     transition: width 0.3s ease-in-out;
 }
 
-.progress-text {
+.modal .progress-text {
     font-size: 1.1rem;
     margin-bottom: 0.5rem;
     color: #333;
 }
 
-.progress-percentage {
+.modal .progress-percentage {
     font-size: 1rem;
     color: #666;
 }
@@ -288,6 +298,40 @@ audio {
     100% {
         width: 100%;
     }
+}
+
+/* Progress Bar Styles */
+.progress {
+    height: 10px;
+    background-color: #f0f0f0;
+    border-radius: 5px;
+    margin: 1rem 0;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background-color: #007bff;
+    transition: width 0.3s ease-in-out;
+    height: 100%;
+}
+
+.progress-status {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+#voiceProgress, #uploadProgress {
+    width: 100%;
+    max-width: 400px;
+    margin: 1rem auto;
+}
+
+#voiceProgressStatus, #uploadProgressStatus {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.5rem;
 }
 
 /* Rating Modal Styles */
