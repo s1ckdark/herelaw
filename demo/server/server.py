@@ -1,7 +1,4 @@
 from flask import Flask, request, jsonify
-from openai import OpenAI
-
-client = OpenAI()
 import os
 from dotenv import load_dotenv
 from flask_cors import CORS
@@ -1207,7 +1204,7 @@ def upload_audio():
             return jsonify({"error": "오디오 파일 변환에 실패했습니다."}), 400
 
         # Whisper 모델을 사용하여 음성 인식 수행
-        model = client.audio.transcriptions.create(
+        model = openai.audio.transcriptions.create(
             model="whisper-1",
             file=open(converted_filepath, "rb"),
             language="ko",
